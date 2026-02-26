@@ -19,6 +19,8 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useDarkMode } from '../contexts/DarkMode';
 import LinearGradient from 'react-native-linear-gradient';
+import PaymentInfoCard from './PaymentInfoCard';
+import { useWhatsApp } from '../hooks/useWhatsApp';
 
 const MyBills = () => {
   const { isDarkMode } = useDarkMode();
@@ -30,6 +32,7 @@ const MyBills = () => {
   const [showDetail, setShowDetail] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [selectedBillDetail, setSelectedBillDetail] = useState(null);
+  const { sendBillViaWhatsApp } = useWhatsApp();
 
   useEffect(() => {
     loadToken();
@@ -102,23 +105,7 @@ const MyBills = () => {
   };
 
   const handlePayBill = bill => {
-    const message = `Halo ${
-      bill.lenderName
-    }, saya ingin membayar tagihan split bill "${
-      bill.receiptName
-    }" sebesar Rp${bill.amount.toLocaleString()}. Mohon konfirmasi rekening untuk transfer.`;
-
-    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
-
-    Linking.canOpenURL(whatsappUrl)
-      .then(supported => {
-        if (supported) {
-          return Linking.openURL(whatsappUrl);
-        } else {
-          Alert.alert('Error', 'WhatsApp tidak tersedia di perangkat ini');
-        }
-      })
-      .catch(err => console.error('Error opening WhatsApp:', err));
+    sendBillViaWhatsApp(bill);
   };
 
   const handleShareBill = async bill => {
@@ -1270,6 +1257,8 @@ const MyBills = () => {
                       </View>
                     )}
                   </View>
+
+                  <PaymentInfoCard user={selectedBill.lender} />
 
                   {/* Action Buttons */}
                   <TouchableOpacity

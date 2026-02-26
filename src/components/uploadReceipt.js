@@ -1,3 +1,4 @@
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { API_URL } from '@env';
 import {
@@ -336,6 +337,7 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
     container: {
       backgroundColor: isDarkMode ? '#404040' : '#fff',
       padding: 16,
+      marginBottom: 16,
       borderRadius: 8,
       marginTop: 16,
     },
@@ -755,6 +757,25 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
                   keyboardType="numeric"
                   placeholder="Harga"
                 />
+                {/* 🔥 TOMBOL HAPUS ITEM */}
+                <TouchableOpacity
+                  onPress={() => {
+                    const newItems = parsedData.items.filter(
+                      (_, i) => i !== idx,
+                    );
+                    setParsedData({ ...parsedData, items: newItems });
+                  }}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: '#ef4444',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Icon name="delete" size={20} color="#fff" />
+                </TouchableOpacity>
               </View>
 
               <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
@@ -844,6 +865,43 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
               )}
             </View>
           ))}
+
+          {/* 🔥 TOMBOL TAMBAH ITEM */}
+          <TouchableOpacity
+            onPress={() => {
+              const newItem = {
+                id: `temp_${Date.now()}_${Math.random()}`,
+                name: '',
+                qty: 1,
+                price: 0,
+                assignees:
+                  parsedData.splitMode === 'equal'
+                    ? parsedData.participantIds
+                    : [],
+              };
+              setParsedData({
+                ...parsedData,
+                items: [...parsedData.items, newItem],
+              });
+            }}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 12,
+              borderWidth: 1,
+              borderColor: '#4A70A9',
+              borderStyle: 'dashed',
+              borderRadius: 8,
+              marginBottom: 12,
+              gap: 8,
+            }}
+          >
+            <Icon name="plus-circle" size={20} color="#4A70A9" />
+            <Text style={{ color: '#4A70A9', fontWeight: '600' }}>
+              Tambah Item Manual
+            </Text>
+          </TouchableOpacity>
 
           <View
             style={{

@@ -38,10 +38,10 @@ export const AuthProvider = ({ children }) => {
         email,
         password,
       });
-      const { token, user } = response.data;
+      const { token, user: userData } = response.data;
 
       await AsyncStorage.setItem('token', token);
-      setUser(user);
+      setUser(userData);
       setIsLoggedIn(true);
       setLoading(false);
     } catch (error) {
@@ -54,12 +54,39 @@ export const AuthProvider = ({ children }) => {
   };
 
   // 🧾 REGISTER
-  const register = async (name, email, password, photo) => {
+  const register = async (
+    name,
+    email,
+    password,
+    photo,
+    phone,
+    paymentMethod,
+    bankName,
+    paymentAccount,
+    accountHolder,
+  ) => {
     try {
+      console.log('📤 Sending register data:', {
+        name,
+        email,
+        password: '***',
+        phone,
+        paymentMethod,
+        paymentAccount,
+        bankName,
+        accountHolder,
+        photo: photo ? 'Ada' : 'Tidak ada',
+      });
+      
       const formData = new FormData();
       formData.append('name', name);
       formData.append('email', email);
       formData.append('password', password);
+      formData.append('phone', phone);
+      formData.append('payment_method', paymentMethod);
+      formData.append('bank_name', bankName);
+      formData.append('payment_account', paymentAccount);
+      formData.append('account_holder', accountHolder);
 
       if (photo) {
         formData.append('profile_picture', {
@@ -115,7 +142,6 @@ export const AuthProvider = ({ children }) => {
 
     setLoading(false);
   }, []);
-
 
   useEffect(() => {
     checkUser();
