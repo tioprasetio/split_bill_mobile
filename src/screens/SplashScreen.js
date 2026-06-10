@@ -1,9 +1,10 @@
 import React, { useEffect } from 'react';
 import { View, Image, StyleSheet } from 'react-native';
-import { StackActions } from '@react-navigation/native';
+import { StackActions, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 
-export default function SplashScreen({ navigation }) {
+export default function SplashScreen() {
+  const navigation = useNavigation();
   const { isLoggedIn } = useAuth();
 
   useEffect(() => {

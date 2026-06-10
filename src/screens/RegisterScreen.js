@@ -13,6 +13,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { launchImageLibrary } from 'react-native-image-picker';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useDarkMode } from '../contexts/DarkMode';
 
 export default function RegisterScreen({ navigation }) {
   const { register } = useAuth();
@@ -26,22 +27,54 @@ export default function RegisterScreen({ navigation }) {
   const [bankName, setBankName] = useState('');
   const [paymentAccount, setPaymentAccount] = useState('');
   const [accountHolder, setAccountHolder] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const { isDarkMode } = useDarkMode();
 
   const pickImage = () => {
-    launchImageLibrary({ mediaType: 'photo' }, response => {
-      if (!response.didCancel && !response.errorMessage) {
-        const file = response.assets[0];
-        setPhoto(file);
-      }
-    });
+    launchImageLibrary(
+      {
+        mediaType: 'photo',
+        quality: 0.5,
+        selectionLimit: 1,
+        maxWidth: 800,
+        maxHeight: 800,
+      },
+      response => {
+        if (!response.didCancel && !response.errorMessage) {
+          const file = response.assets[0];
+
+          // Cek ukuran file — tolak kalau > 5MB
+          if (file.fileSize && file.fileSize > 5 * 1024 * 1024) {
+            Alert.alert(
+              'Foto terlalu besar',
+              'Pilih foto yang lebih kecil dari 5MB, atau gunakan screenshot.',
+            );
+            return;
+          }
+
+          setPhoto(file);
+        }
+      },
+    );
   };
 
   const paymentMethods = [
-    { label: 'Bank Transfer', value: 'bank_transfer' },
-    { label: 'E-Wallet', value: 'e_wallet' },
+    { label: 'Bank Transfer', value: 'bank_transfer', icon: 'bank' },
+    { label: 'E-Wallet', value: 'e_wallet', icon: 'wallet' },
   ];
 
   const handleRegister = async () => {
+    if (isLoading) return;
+    console.log('📋 Data yang akan dikirim:', {
+      name,
+      email,
+      phone,
+      paymentMethod,
+      bankName,
+      paymentAccount,
+      accountHolder,
+      photo: photo ? photo.uri : 'TIDAK ADA',
+    });
     if (
       !name ||
       !email ||
@@ -62,7 +95,9 @@ export default function RegisterScreen({ navigation }) {
       return;
     }
 
-    await register(
+    setIsLoading(true);
+
+    const success = await register(
       name,
       email,
       password,
@@ -74,75 +109,144 @@ export default function RegisterScreen({ navigation }) {
       accountHolder,
     );
 
-    Alert.alert('Sukses', 'Akun berhasil dibuat! Silakan login.');
-    navigation.navigate('Login');
+    setIsLoading(false);
+
+    if (success) {
+      Alert.alert('Sukses', 'Akun berhasil dibuat! Silakan login.');
+      navigation.navigate('Login');
+    }
+  };
+
+  const theme = {
+    bg: isDarkMode ? '#111827' : '#f9fafb',
+    card: isDarkMode ? '#1f2937' : '#fff',
+    title: isDarkMode ? '#f0f0f0' : '#333',
+    subtitle: isDarkMode ? '#9ca3af' : '#666',
+    inputBg: isDarkMode ? '#111827' : '#fff',
+    inputBorder: isDarkMode ? '#374151' : '#ddd',
+    inputText: isDarkMode ? '#f0f0f0' : '#333',
+    inputPlaceholder: isDarkMode ? '#6b7280' : '#aaa',
+    linkText: isDarkMode ? '#9ca3af' : '#555',
   };
 
   return (
     <ScrollView
-      contentContainerStyle={styles.scrollContainer}
+      contentContainerStyle={[
+        styles.scrollContainer,
+        { backgroundColor: theme.bg },
+      ]}
       showsVerticalScrollIndicator={false}
     >
-      <View style={styles.container}>
-        <Text style={styles.title}>Buat Akun Baru ✨</Text>
-        <Text style={styles.subtitle}>
+      <View style={[styles.container, { backgroundColor: theme.bg }]}>
+        <Text style={[styles.title, { color: theme.title }]}>
+          Buat Akun Baru ✨
+        </Text>
+        <Text style={[styles.subtitle, { color: theme.subtitle }]}>
           Daftar untuk mulai membagi tagihanmu
         </Text>
 
-        <View style={styles.form}>
-          <TouchableOpacity style={styles.imagePicker} onPress={pickImage}>
+        <View style={[styles.form, { backgroundColor: theme.card }]}>
+          <TouchableOpacity
+            style={[styles.imagePicker, { backgroundColor: theme.inputBg }]}
+            onPress={pickImage}
+          >
             {photo ? (
               <Image source={{ uri: photo.uri }} style={styles.image} />
             ) : (
-              <Text style={styles.imageText}>Pilih Foto Profil</Text>
+              <Text style={[styles.imageText, { color: theme.inputText }]}>
+                Pilih Foto Profil
+              </Text>
             )}
           </TouchableOpacity>
 
+          {!photo && (
+            <Text style={styles.photoHint}>*Maksimal ukuran foto 5MB!</Text>
+          )}
+
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              {
+                backgroundColor: theme.inputBg,
+                borderColor: theme.inputBorder,
+                color: theme.inputText,
+              },
+            ]}
             placeholder="Nama Lengkap"
-            placeholderTextColor="#aaa"
+            placeholderTextColor={theme.inputPlaceholder}
             onChangeText={setName}
             value={name}
           />
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              {
+                backgroundColor: theme.inputBg,
+                borderColor: theme.inputBorder,
+                color: theme.inputText,
+              },
+            ]}
             placeholder="Email"
-            placeholderTextColor="#aaa"
+            placeholderTextColor={theme.inputPlaceholder}
             onChangeText={setEmail}
             value={email}
             keyboardType="email-address"
             autoCapitalize="none"
           />
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              {
+                backgroundColor: theme.inputBg,
+                borderColor: theme.inputBorder,
+                color: theme.inputText,
+              },
+            ]}
             placeholder="Password"
-            placeholderTextColor="#aaa"
+            placeholderTextColor={theme.inputPlaceholder}
             secureTextEntry
             onChangeText={setPassword}
             value={password}
           />
 
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              {
+                backgroundColor: theme.inputBg,
+                borderColor: theme.inputBorder,
+                color: theme.inputText,
+              },
+            ]}
             placeholder="Konfirmasi Password"
-            placeholderTextColor="#aaa"
+            placeholderTextColor={theme.inputPlaceholder}
             secureTextEntry
             value={confirmPassword}
             onChangeText={setConfirmPassword}
           />
 
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              {
+                backgroundColor: theme.inputBg,
+                borderColor: theme.inputBorder,
+                color: theme.inputText,
+              },
+            ]}
             placeholder="Nomor Telepon"
-            placeholderTextColor="#aaa"
+            placeholderTextColor={theme.inputPlaceholder}
             value={phone}
             onChangeText={setPhone}
             keyboardType="phone-pad"
           />
 
-          <View style={styles.paymentSection}>
-            <Text style={styles.sectionLabel}>Metode Pembayaran *</Text>
+          <View
+            style={[styles.paymentSection, { backgroundColor: theme.card }]}
+          >
+            <Text style={[styles.sectionLabel, { color: theme.inputText }]}>
+              Metode Pembayaran *
+            </Text>
 
             {/* Pilihan metode pembayaran */}
             <View style={styles.paymentMethods}>
@@ -183,24 +287,45 @@ export default function RegisterScreen({ navigation }) {
             {paymentMethod === 'bank_transfer' && (
               <>
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.inputBg,
+                      borderColor: theme.inputBorder,
+                      color: theme.inputText,
+                    },
+                  ]}
                   placeholder="Nama Bank (BCA, Mandiri, BRI) *"
-                  placeholderTextColor="#aaa"
+                  placeholderTextColor={theme.inputPlaceholder}
                   value={bankName}
                   onChangeText={setBankName}
                 />
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.inputBg,
+                      borderColor: theme.inputBorder,
+                      color: theme.inputText,
+                    },
+                  ]}
                   placeholder="Nomor Rekening *"
-                  placeholderTextColor="#aaa"
+                  placeholderTextColor={theme.inputPlaceholder}
                   value={paymentAccount}
                   onChangeText={setPaymentAccount}
                   keyboardType="numeric"
                 />
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.inputBg,
+                      borderColor: theme.inputBorder,
+                      color: theme.inputText,
+                    },
+                  ]}
                   placeholder="Atas Nama *"
-                  placeholderTextColor="#aaa"
+                  placeholderTextColor={theme.inputPlaceholder}
                   value={accountHolder}
                   onChangeText={setAccountHolder}
                 />
@@ -210,24 +335,45 @@ export default function RegisterScreen({ navigation }) {
             {paymentMethod === 'e_wallet' && (
               <>
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.inputBg,
+                      borderColor: theme.inputBorder,
+                      color: theme.inputText,
+                    },
+                  ]}
                   placeholder="Nama E-Wallet (OVO, GoPay, Dana) *"
-                  placeholderTextColor="#aaa"
+                  placeholderTextColor={theme.inputPlaceholder}
                   value={bankName}
                   onChangeText={setBankName}
                 />
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.inputBg,
+                      borderColor: theme.inputBorder,
+                      color: theme.inputText,
+                    },
+                  ]}
                   placeholder="Nomor E-Wallet *"
-                  placeholderTextColor="#aaa"
+                  placeholderTextColor={theme.inputPlaceholder}
                   value={paymentAccount}
                   onChangeText={setPaymentAccount}
                   keyboardType="numeric"
                 />
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.inputBg,
+                      borderColor: theme.inputBorder,
+                      color: theme.inputText,
+                    },
+                  ]}
                   placeholder="Atas Nama *"
-                  placeholderTextColor="#aaa"
+                  placeholderTextColor={theme.inputPlaceholder}
                   value={accountHolder}
                   onChangeText={setAccountHolder}
                 />
@@ -242,12 +388,17 @@ export default function RegisterScreen({ navigation }) {
               end={{ x: 0, y: 1 }}
               style={styles.button}
             >
-              <Text style={styles.buttonText}>Daftar</Text>
+              <View style={styles.titleContainer}>
+                <Icon name="account-plus" size={18} color="#fff" />
+                <Text style={styles.buttonText}>
+                  {isLoading ? 'Mendaftar...' : 'Daftar'}
+                </Text>
+              </View>
             </LinearGradient>
           </TouchableOpacity>
 
           <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-            <Text style={styles.link}>
+            <Text style={[styles.link, { color: theme.linkText }]}>
               Sudah punya akun? <Text style={styles.linkBold}>Login</Text>
             </Text>
           </TouchableOpacity>
@@ -311,6 +462,13 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 60,
   },
+  photoHint: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#888',
+    marginTop: -5,
+    marginBottom: 10,
+  },
   input: {
     borderWidth: 1,
     borderColor: '#ddd',
@@ -325,6 +483,11 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 5,
+  },
+  titleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   buttonText: {
     color: '#fff',

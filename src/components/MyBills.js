@@ -9,23 +9,24 @@ import {
   Modal,
   Alert,
   Image,
-  Linking,
   Share,
   StyleSheet,
-  RefreshControl,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { UploadProofButton } from './UploadProofButton';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useDarkMode } from '../contexts/DarkMode';
 import LinearGradient from 'react-native-linear-gradient';
 import PaymentInfoCard from './PaymentInfoCard';
 import { useWhatsApp } from '../hooks/useWhatsApp';
+import { useAuth } from '../contexts/AuthContext';
 
-const MyBills = () => {
+const MyBills = ({ refreshRef }) => {
   const { isDarkMode } = useDarkMode();
   const [token, setToken] = useState(null);
   const [bills, setBills] = useState([]);
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedBill, setSelectedBill] = useState(null);
@@ -44,6 +45,12 @@ const MyBills = () => {
     }
   }, [token, fetchMyBills]);
 
+  useEffect(() => {
+    if (refreshRef) {
+      refreshRef.current = fetchMyBills;
+    }
+  }, [refreshRef, fetchMyBills]);
+
   const loadToken = async () => {
     try {
       const storedToken = await AsyncStorage.getItem('token');
@@ -54,19 +61,26 @@ const MyBills = () => {
   };
 
   const fetchMyBills = useCallback(async () => {
+    if (!token) return;
+
     try {
       setLoading(true);
       const res = await fetch(`${API_URL}/api/my-bills`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (res.ok) {
         const data = await res.json();
-        setBills(data);
+        setBills(data.filter(b => b.status !== 'CONFIRMED'));
       } else {
-        console.error('Failed to fetch bills:', await res.text());
+        const errText = await res.text();
+        console.error('Failed to fetch bills:', errText);
+
+        // 🚨 HANDLE TOKEN INVALID
+        if (errText.includes('Invalid token')) {
+          await AsyncStorage.removeItem('token');
+          console.log('Token dihapus, harus login ulang');
+        }
       }
     } catch (err) {
       console.error('Failed to fetch bills:', err);
@@ -81,21 +95,38 @@ const MyBills = () => {
     fetchMyBills();
   };
 
+  // ✅ FIX: billSplitId & status langsung dari /my-bills, sync dari detail
   const handleViewDetail = async bill => {
-    setSelectedBill(bill);
+    setSelectedBill({
+      ...bill,
+      billSplitId: bill.billSplitId,
+      status: bill.status || 'UNPAID',
+    });
     setLoadingDetail(true);
     setShowDetail(true);
 
     try {
       const res = await fetch(`${API_URL}/api/receipts/${bill.receiptId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (res.ok) {
         const data = await res.json();
         setSelectedBillDetail(data);
+
+        // ✅ Sync status terbaru dari detail
+        if (data.splits) {
+          const myBillSplit = data.splits.find(
+            split => split.participantId === user?.id,
+          );
+          if (myBillSplit) {
+            setSelectedBill(prev => ({
+              ...prev,
+              billSplitId: myBillSplit.id,
+              status: myBillSplit.status || 'UNPAID',
+            }));
+          }
+        }
       }
     } catch (err) {
       console.error('Failed to fetch bill detail:', err);
@@ -113,7 +144,8 @@ const MyBills = () => {
       .map(
         item =>
           `• ${item.name} (${item.qty}x) - Rp${(
-            item.qty * item.price
+            item.qty * item.price -
+            (item.voucher || 0)
           ).toLocaleString()}`,
       )
       .join('\n');
@@ -121,29 +153,50 @@ const MyBills = () => {
     const message =
       `📄 Tagihan Split Bill\n\n` +
       `Receipt: ${bill.receiptName}\n` +
-      `Dari: ${bill.lenderName}\n` +
+      `Dari: ${bill.lender.name}\n` +
       `Jumlah: Rp${bill.amount.toLocaleString()}\n\n` +
       `Items:\n${itemsList}\n\n` +
       `Silakan konfirmasi pembayaran.`;
 
     try {
-      await Share.share({
-        message: message,
-        title: 'Tagihan Split Bill',
-      });
+      await Share.share({ message, title: 'Tagihan Split Bill' });
     } catch (error) {
-      // Fallback to clipboard
       await Clipboard.setString(message);
       Alert.alert('Berhasil', 'Detail tagihan berhasil disalin!');
     }
   };
 
+  // ✅ Helper badge dinamis
+  const getBadgeConfig = status => {
+    switch (status) {
+      case 'PAID':
+        return {
+          bg: isDarkMode ? '#78350f' : '#fef3c7',
+          text: isDarkMode ? '#fcd34d' : '#92400e',
+          label: 'Menunggu Konfirmasi',
+        };
+      case 'CONFIRMED':
+        return {
+          bg: isDarkMode ? '#064e3b' : '#d1fae5',
+          text: isDarkMode ? '#6ee7b7' : '#065f46',
+          label: 'Lunas',
+        };
+      default: // UNPAID
+        return {
+          bg: isDarkMode ? '#7f1d1d' : '#fee2e2',
+          text: isDarkMode ? '#fca5a5' : '#991b1b',
+          label: 'Belum Bayar',
+        };
+    }
+  };
+
   const styles = StyleSheet.create({
     container: {
-      backgroundColor: isDarkMode ? '#404040' : '#fff',
+      flex: 1,
+      backgroundColor: isDarkMode ? '#1f2937' : '#fff',
       padding: 16,
       borderRadius: 8,
-      marginTop: 16,
+      marginBottom: 0,
     },
     header: {
       flexDirection: 'row',
@@ -154,22 +207,15 @@ const MyBills = () => {
     title: {
       fontSize: 18,
       fontWeight: '600',
-      color: isDarkMode ? '#f0f0f0' : '#000',
+      color: isDarkMode ? '#f0f0f0' : '#252525',
     },
-    refreshButton: {
-      padding: 8,
-      borderRadius: 20,
-    },
+    refreshButton: { padding: 8, borderRadius: 20 },
     emptyContainer: {
       alignItems: 'center',
       paddingVertical: 4,
       paddingHorizontal: 16,
     },
-    emptyIcon: {
-      fontSize: 72,
-      color: '#d1d5db',
-      marginBottom: 16,
-    },
+    emptyIcon: { fontSize: 72, color: '#d1d5db', marginBottom: 16 },
     emptyTitle: {
       fontSize: 16,
       fontWeight: '500',
@@ -188,7 +234,7 @@ const MyBills = () => {
       marginBottom: 24,
       borderLeftWidth: 4,
       borderLeftColor: '#ef4444',
-      backgroundColor: isDarkMode ? '#2a2a2a' : '#fee2e2',
+      backgroundColor: isDarkMode ? '#374151' : '#fee2e2',
     },
     summaryRow: {
       flexDirection: 'row',
@@ -198,26 +244,19 @@ const MyBills = () => {
     summaryLabel: {
       fontSize: 14,
       fontWeight: '500',
-      color: '#6b7280',
+      color: isDarkMode ? '#f0f0f0' : '#6b7280',
       marginBottom: 4,
     },
-    summaryAmount: {
-      fontSize: 24,
-      fontWeight: 'bold',
-      color: '#dc2626',
-    },
+    summaryAmount: { fontSize: 24, fontWeight: 'bold', color: '#dc2626' },
     billCard: {
       borderWidth: 1,
       borderColor: isDarkMode ? '#555' : '#e5e7eb',
-      backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
+      backgroundColor: isDarkMode ? '#374151' : '#fff',
       borderRadius: 12,
       padding: 20,
       marginBottom: 12,
     },
-    billsScrollView: {
-      maxHeight: 550,
-      marginBottom: 8,
-    },
+    billsScrollView: { maxHeight: 550, marginBottom: 8 },
     billHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -227,20 +266,11 @@ const MyBills = () => {
     billTitle: {
       fontSize: 18,
       fontWeight: '600',
-      color: isDarkMode ? '#f0f0f0' : '#000',
+      color: isDarkMode ? '#f0f0f0' : '#252525',
       maxWidth: '80%',
     },
-    badge: {
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 12,
-      backgroundColor: isDarkMode ? '#7f1d1d' : '#fee2e2',
-    },
-    badgeText: {
-      fontSize: 12,
-      fontWeight: '500',
-      color: isDarkMode ? '#fca5a5' : '#991b1b',
-    },
+    badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+    badgeText: { fontSize: 12, fontWeight: '500' },
     titleRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -248,129 +278,86 @@ const MyBills = () => {
       gap: 8,
       marginBottom: 6,
     },
-
-    amountContainer: {
-      alignItems: 'flex-end',
-      marginLeft: 12,
-    },
-    lenderRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginTop: 8,
-    },
-
-    lenderAvatar: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      marginRight: 12,
-    },
-
+    amountContainer: { alignItems: 'flex-end', marginLeft: 12 },
+    lenderRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
+    lenderAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12 },
     lenderName: {
       fontSize: 14,
       fontWeight: '600',
       color: isDarkMode ? '#f0f0f0' : '#111827',
     },
-
-    lenderEmail: {
-      fontSize: 12,
-      color: '#6b7280',
-    },
-    billInfo: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginBottom: 4,
-    },
-    billInfoText: {
-      fontSize: 14,
-      color: '#6b7280',
-      marginLeft: 8,
-    },
+    lenderEmail: { fontSize: 12, color: isDarkMode ? '#f0f0f0' : '#6b7280' },
     billAmount: {
       fontSize: 24,
       fontWeight: 'bold',
       color: '#dc2626',
       marginBottom: 4,
     },
-    billAmountLabel: {
-      fontSize: 12,
-      color: '#9ca3af',
-    },
+    billAmountLabel: { fontSize: 12, color: '#9ca3af' },
     previewContainer: {
-      backgroundColor: isDarkMode ? '#1A1A1A' : '#FFFFFF',
+      backgroundColor: isDarkMode ? '#1f2937' : '#FFFFFF',
       borderRadius: 12,
       padding: 16,
       marginBottom: 16,
       borderWidth: 1,
-      borderColor: isDarkMode ? '#333333' : '#F0F0F0',
+      borderColor: isDarkMode ? '#374151' : '#F0F0F0',
     },
-
     previewHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
       marginBottom: 12,
     },
-
     previewTitle: {
       fontSize: 15,
       fontWeight: '600',
       color: isDarkMode ? '#F0F0F0' : '#111827',
     },
-
     previewCountBadge: {
       backgroundColor: isDarkMode ? '#333333' : '#F3F4F6',
       paddingHorizontal: 10,
       paddingVertical: 4,
       borderRadius: 100,
     },
-
     previewCountText: {
       fontSize: 12,
       fontWeight: '500',
       color: isDarkMode ? '#9CA3AF' : '#6B7280',
     },
-
     previewDivider: {
       height: 1,
-      backgroundColor: isDarkMode ? '#333333' : '#F0F0F0',
+      backgroundColor: isDarkMode ? '#374151' : '#F0F0F0',
       marginBottom: 12,
     },
-
     previewItem: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
       marginBottom: 10,
     },
-
     previewItemLeft: {
       flex: 1,
       flexDirection: 'row',
       alignItems: 'baseline',
       gap: 8,
     },
-
     previewItemName: {
       fontSize: 14,
       color: isDarkMode ? '#F0F0F0' : '#111827',
       flex: 1,
     },
-
     previewItemQty: {
       fontSize: 12,
       color: isDarkMode ? '#9CA3AF' : '#6B7280',
       fontWeight: '500',
       minWidth: 35,
     },
-
     previewItemPrice: {
       fontSize: 14,
       fontWeight: '600',
       color: isDarkMode ? '#F0F0F0' : '#111827',
       marginLeft: 12,
     },
-
     previewMoreContainer: {
       alignItems: 'center',
       marginTop: 4,
@@ -379,13 +366,7 @@ const MyBills = () => {
       borderTopWidth: 1,
       borderTopColor: isDarkMode ? '#333333' : '#F0F0F0',
     },
-
-    previewMoreText: {
-      fontSize: 13,
-      color: '#4A70A9',
-      fontWeight: '500',
-    },
-
+    previewMoreText: { fontSize: 13, color: '#4A70A9', fontWeight: '500' },
     previewTotal: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -393,27 +374,16 @@ const MyBills = () => {
       marginTop: 8,
       paddingTop: 12,
       borderTopWidth: 1,
-      borderTopColor: isDarkMode ? '#333333' : '#F0F0F0',
+      borderTopColor: isDarkMode ? '#374151' : '#F0F0F0',
       borderStyle: 'dashed',
     },
-
     previewTotalLabel: {
       fontSize: 14,
       fontWeight: '600',
       color: isDarkMode ? '#F0F0F0' : '#111827',
     },
-
-    previewTotalAmount: {
-      fontSize: 16,
-      fontWeight: '700',
-      color: '#4A70A9',
-    },
-    actionButtons: {
-      flexDirection: 'row',
-      gap: 10,
-      alignItems: 'center',
-    },
-
+    previewTotalAmount: { fontSize: 16, fontWeight: '700', color: '#4A70A9' },
+    actionButtons: { flexDirection: 'row', gap: 10, alignItems: 'center' },
     actionButton: {
       paddingVertical: 10,
       paddingHorizontal: 18,
@@ -424,29 +394,24 @@ const MyBills = () => {
       gap: 6,
       minHeight: 40,
     },
-
-    actionButtonText: {
-      fontSize: 14,
-      fontWeight: '500',
-      color: '#fff',
-    },
+    actionButtonText: { fontSize: 14, fontWeight: '500', color: '#fff' },
     tipsCard: {
       marginTop: 24,
       padding: 16,
       borderRadius: 8,
       borderLeftWidth: 4,
       borderLeftColor: '#3b82f6',
-      backgroundColor: isDarkMode ? '#2a2a2a' : '#dbeafe',
+      backgroundColor: isDarkMode ? '#374151' : '#dbeafe',
     },
     tipsTitle: {
       fontSize: 14,
       fontWeight: '500',
-      color: '#1e40af',
+      color: isDarkMode ? '#f0f0f0' : '#1e40af',
       marginBottom: 8,
     },
     tipText: {
       fontSize: 14,
-      color: '#1d4ed8',
+      color: isDarkMode ? '#f0f0f0' : '#1d4ed8',
       marginBottom: 4,
     },
     modalOverlay: {
@@ -457,7 +422,7 @@ const MyBills = () => {
       padding: 16,
     },
     modalContent: {
-      backgroundColor: isDarkMode ? '#404040' : '#fff',
+      backgroundColor: isDarkMode ? '#374151' : '#fff',
       borderRadius: 12,
       padding: 24,
       width: '100%',
@@ -472,69 +437,57 @@ const MyBills = () => {
     modalTitle: {
       fontSize: 20,
       fontWeight: 'bold',
-      color: isDarkMode ? '#f0f0f0' : '#000',
+      color: isDarkMode ? '#f0f0f0' : '#252525',
     },
-    closeButton: {
-      fontSize: 32,
-      color: '#9ca3af',
-      fontWeight: '300',
-    },
+    closeButton: { fontSize: 32, color: '#9ca3af', fontWeight: '300' },
     detailCard: {
       padding: 16,
       borderRadius: 8,
-      backgroundColor: isDarkMode ? '#2a2a2a' : '#f9fafb',
+      backgroundColor: isDarkMode ? '#111827' : '#f9fafb',
       marginBottom: 24,
+      borderWidth: 1,
+      borderColor: isDarkMode ? '#374151' : '#F0F0F0',
     },
     detailTitle: {
       fontSize: 18,
       fontWeight: '600',
-      color: isDarkMode ? '#f0f0f0' : '#000',
+      color: isDarkMode ? '#f0f0f0' : '#252525',
       marginBottom: 8,
     },
-    // ========== MY BILL SECTION ==========
     myBillSection: {
       marginBottom: 24,
-      backgroundColor: isDarkMode ? '#1E1E1E' : '#FFFFFF',
+      backgroundColor: isDarkMode ? '#111827' : '#FFFFFF',
       borderRadius: 16,
       padding: 16,
       borderWidth: 1,
-      borderColor: isDarkMode ? '#333333' : '#F0F0F0',
+      borderColor: isDarkMode ? '#374151' : '#F0F0F0',
     },
-
     myBillAmountContainer: {
-      backgroundColor: isDarkMode ? '#2A2A2A' : '#F9FAFB',
+      backgroundColor: isDarkMode ? '#374151' : '#F9FAFB',
       borderRadius: 12,
       padding: 20,
       marginBottom: 16,
       alignItems: 'center',
       borderWidth: 1,
-      borderColor: isDarkMode ? '#333333' : '#F0F0F0',
+      borderColor: isDarkMode ? '#374151' : '#F0F0F0',
     },
-
     myBillAmountLabel: {
       fontSize: 13,
       color: isDarkMode ? '#9CA3AF' : '#6B7280',
       marginBottom: 8,
       fontWeight: '500',
     },
-
     myBillAmountValue: {
       fontSize: 28,
       fontWeight: '700',
       color: isDarkMode ? '#f87171' : '#dc2626',
     },
-
     myBillItemPrice: {
       fontSize: 16,
       fontWeight: '700',
       color: isDarkMode ? '#f87171' : '#dc2626',
     },
-
-    myBillItems: {
-      marginTop: 4,
-      gap: 8,
-    },
-
+    myBillItems: { marginTop: 4, gap: 8 },
     myBillNote: {
       fontSize: 11,
       color: isDarkMode ? '#9CA3AF' : '#6B7280',
@@ -542,29 +495,25 @@ const MyBills = () => {
       fontStyle: 'italic',
       textAlign: 'left',
     },
-
     itemsSection: {
       marginBottom: 24,
-      backgroundColor: isDarkMode ? '#1E1E1E' : '#FFFFFF',
+      backgroundColor: isDarkMode ? '#111827' : '#FFFFFF',
       borderRadius: 16,
       padding: 16,
       borderWidth: 1,
-      borderColor: isDarkMode ? '#333333' : '#F0F0F0',
+      borderColor: isDarkMode ? '#374151' : '#F0F0F0',
     },
-
     sectionHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
       marginBottom: 16,
     },
-
     sectionTitleContainer: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
     },
-
     sectionIconContainer: {
       width: 32,
       height: 32,
@@ -573,31 +522,23 @@ const MyBills = () => {
       alignItems: 'center',
       justifyContent: 'center',
     },
-
     sectionTitle: {
       fontSize: 16,
       fontWeight: '600',
       color: isDarkMode ? '#F0F0F0' : '#111827',
     },
-
     sectionBadge: {
       backgroundColor: isDarkMode ? '#2A2A2A' : '#F3F4F6',
       paddingHorizontal: 10,
       paddingVertical: 4,
       borderRadius: 100,
     },
-
     sectionBadgeText: {
       fontSize: 12,
       fontWeight: '500',
       color: isDarkMode ? '#9CA3AF' : '#6B7280',
     },
-
-    itemsScrollView: {
-      maxHeight: 300,
-      paddingRight: 4,
-    },
-
+    itemsScrollView: { paddingRight: 4 },
     itemCard: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -605,86 +546,55 @@ const MyBills = () => {
       paddingVertical: 12,
       paddingHorizontal: 12,
       borderRadius: 12,
-      backgroundColor: isDarkMode ? '#2A2A2A' : '#F9FAFB',
+      backgroundColor: isDarkMode ? '#374151' : '#F9FAFB',
       marginBottom: 8,
       borderWidth: 1,
-      borderColor: isDarkMode ? '#333333' : '#FFFFFF',
+      borderColor: isDarkMode ? '#374151' : '#FFFFFF',
     },
-
-    itemInfo: {
-      flex: 1,
-      marginRight: 12,
-    },
-
+    itemInfo: { flex: 1, marginRight: 12 },
     itemNameContainer: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
       marginBottom: 4,
     },
-
     itemName: {
       fontSize: 15,
       fontWeight: '500',
       color: isDarkMode ? '#F0F0F0' : '#111827',
       flex: 1,
     },
-
     itemQtyBadge: {
       fontSize: 12,
       fontWeight: '600',
       color: isDarkMode ? '#9CA3AF' : '#6B7280',
-      backgroundColor: isDarkMode ? '#333333' : '#E5E7EB',
+      backgroundColor: isDarkMode ? '#111827' : '#E5E7EB',
       paddingHorizontal: 8,
       paddingVertical: 2,
       borderRadius: 100,
       overflow: 'hidden',
     },
-
-    itemDetails: {
-      fontSize: 13,
-      color: isDarkMode ? '#9CA3AF' : '#6B7280',
-    },
-
-    itemPriceContainer: {
-      alignItems: 'flex-end',
-    },
-
-    itemPrice: {
-      fontSize: 16,
-      fontWeight: '700',
-      color: '#4A70A9',
-    },
-
-    itemsFooter: {
-      marginTop: 12,
-    },
-
+    itemDetails: { fontSize: 13, color: isDarkMode ? '#9CA3AF' : '#6B7280' },
+    itemPriceContainer: { alignItems: 'flex-end' },
+    itemPrice: { fontSize: 16, fontWeight: '700', color: '#4A70A9' },
+    itemsFooter: { marginTop: 12 },
     footerDivider: {
       height: 1,
-      backgroundColor: isDarkMode ? '#333333' : '#F0F0F0',
+      backgroundColor: isDarkMode ? '#374151' : '#F0F0F0',
       marginBottom: 12,
     },
-
     totalContainer: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
       paddingHorizontal: 4,
     },
-
     totalLabel: {
       fontSize: 14,
       fontWeight: '600',
       color: isDarkMode ? '#F0F0F0' : '#111827',
     },
-
-    totalAmount: {
-      fontSize: 18,
-      fontWeight: '700',
-      color: '#4A70A9',
-    },
-
+    totalAmount: { fontSize: 18, fontWeight: '700', color: '#4A70A9' },
     modalButton: {
       paddingVertical: 14,
       paddingHorizontal: 24,
@@ -699,7 +609,7 @@ const MyBills = () => {
     modalButtonOutline: {
       backgroundColor: 'transparent',
       borderWidth: 1.5,
-      borderColor: '#4A70A9',
+      borderColor: isDarkMode ? '#608CCF' : '#4A70A9',
     },
     modalButtonText: {
       fontSize: 16,
@@ -708,19 +618,16 @@ const MyBills = () => {
       color: '#fff',
     },
     buttonOutlineText: {
-      color: '#4A70A9',
+      color: isDarkMode ? '#608CCF' : '#4A70A9',
       fontSize: 16,
     },
     noteCard: {
       marginTop: 24,
       padding: 16,
       borderRadius: 8,
-      backgroundColor: isDarkMode ? 'rgba(113, 63, 18, 0.2)' : '#fef3c7',
+      backgroundColor: isDarkMode ? '#111827' : '#fef3c7',
     },
-    noteText: {
-      fontSize: 14,
-      color: '#92400e',
-    },
+    noteText: { fontSize: 14, color: '#FFFFFF' },
   });
 
   if (loading) {
@@ -729,7 +636,7 @@ const MyBills = () => {
         <View style={{ alignItems: 'center', paddingVertical: 32 }}>
           <ActivityIndicator size="large" color="#4A70A9" />
           <Text
-            style={{ marginTop: 8, color: isDarkMode ? '#f0f0f0' : '#000' }}
+            style={{ marginTop: 8, color: isDarkMode ? '#f0f0f0' : '#252525' }}
           >
             Memuat tagihan...
           </Text>
@@ -742,22 +649,12 @@ const MyBills = () => {
     <>
       <View style={{ flex: 1, paddingBottom: 100 }}>
         <View style={styles.container}>
-          <View style={styles.header}>
-            <Text style={styles.title}>Tagihan Saya</Text>
-            <TouchableOpacity
-              style={styles.refreshButton}
-              onPress={fetchMyBills}
-            >
-              <Icon name="refresh" style={{ fontSize: 24, color: '#4A70A9' }} />
-            </TouchableOpacity>
-          </View>
-
           {bills.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyIcon}>🧾</Text>
               <Text style={styles.emptyTitle}>Tidak Ada Tagihan</Text>
               <Text style={styles.emptyText}>
-                Anda belum memiliki tagihan split bill yang perlu dibayar
+                Semua tagihan sudah lunas atau belum ada tagihan baru
               </Text>
               <View
                 style={{
@@ -766,7 +663,7 @@ const MyBills = () => {
                   paddingHorizontal: 16,
                   paddingVertical: 8,
                   borderRadius: 8,
-                  backgroundColor: isDarkMode ? '#2a2a2a' : '#f3f4f6',
+                  backgroundColor: isDarkMode ? '#111827' : '#f3f4f6',
                 }}
               >
                 <Text style={{ fontSize: 16, marginRight: 8 }}>ℹ️</Text>
@@ -790,7 +687,12 @@ const MyBills = () => {
                     </Text>
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={{ fontSize: 14, color: '#6b7280' }}>
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        color: isDarkMode ? '#f0f0f0' : '#6b7280',
+                      }}
+                    >
                       {bills.length} tagihan
                     </Text>
                     <View
@@ -822,140 +724,153 @@ const MyBills = () => {
                 style={styles.billsScrollView}
                 showsVerticalScrollIndicator={true}
                 nestedScrollEnabled={true}
-                refreshControl={
-                  <RefreshControl
-                    refreshing={refreshing}
-                    onRefresh={onRefresh}
-                  />
-                }
               >
-                {bills.map((bill, index) => (
-                  <View
-                    key={`${bill.receiptId}-${index}`}
-                    style={styles.billCard}
-                  >
-                    <View style={styles.billHeader}>
-                      {/* KIRI */}
-                      <View style={{ flex: 1 }}>
-                        <View style={styles.titleRow}>
-                          <Text style={styles.billTitle} numberOfLines={1}>
-                            {bill.receiptName}
-                          </Text>
-                          <View style={styles.badge}>
-                            <Text style={styles.badgeText}>Belum Bayar</Text>
-                          </View>
-                        </View>
+                {bills.map((bill, index) => {
+                  // ✅ Badge dinamis berdasarkan status
+                  const badgeConfig = getBadgeConfig(bill.status);
 
-                        <View style={styles.lenderRow}>
-                          <Image
-                            source={{
-                              uri: bill.lender.profilePicture
-                                ? `${API_URL}${bill.lender.profilePicture}`
-                                : 'https://static.vecteezy.com/system/resources/previews/054/343/112/non_2x/a-person-icon-in-a-circle-free-png.png',
-                            }}
-                            style={styles.lenderAvatar}
-                          />
-
-                          <View>
-                            <Text style={styles.lenderName}>
-                              {bill.lender.name}
+                  return (
+                    <View
+                      key={`${bill.receiptId}-${index}`}
+                      style={styles.billCard}
+                    >
+                      <View style={styles.billHeader}>
+                        {/* KIRI */}
+                        <View style={{ flex: 1 }}>
+                          <View style={styles.titleRow}>
+                            <Text style={styles.billTitle} numberOfLines={1}>
+                              {bill.receiptName}
                             </Text>
-                            <Text style={styles.lenderEmail}>
-                              {bill.lender.email}
-                            </Text>
-                          </View>
-                        </View>
-                      </View>
-
-                      {/* KANAN */}
-                      <View style={styles.amountContainer}>
-                        <Text style={styles.billAmount}>
-                          Rp{bill.amount.toLocaleString()}
-                        </Text>
-                        <Text style={styles.billAmountLabel}>
-                          Total Tagihan
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* Preview Items */}
-                    <View style={styles.previewContainer}>
-                      {/* Header dengan jumlah item */}
-                      <View style={styles.previewHeader}>
-                        <Text style={styles.previewTitle}>Preview Items</Text>
-                        <View style={styles.previewCountBadge}>
-                          <Text style={styles.previewCountText}>
-                            {bill.items.length} item
-                          </Text>
-                        </View>
-                      </View>
-
-                      {/* Divider tipis */}
-                      <View style={styles.previewDivider} />
-
-                      {/* List items - LEFT: nama & qty, RIGHT: total harga */}
-                      {bill.items.slice(0, 3).map((item, index) => (
-                        <View key={item.id} style={styles.previewItem}>
-                          <View style={styles.previewItemLeft}>
-                            <Text
-                              style={styles.previewItemName}
-                              numberOfLines={1}
+                            {/* ✅ Badge status dinamis */}
+                            <View
+                              style={[
+                                styles.badge,
+                                { backgroundColor: badgeConfig.bg },
+                              ]}
                             >
-                              {item.name}
-                            </Text>
-                            <Text style={styles.previewItemQty}>
-                              {item.qty}x
+                              <Text
+                                style={[
+                                  styles.badgeText,
+                                  { color: badgeConfig.text },
+                                ]}
+                              >
+                                {badgeConfig.label}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View style={styles.lenderRow}>
+                            <Image
+                              source={{
+                                uri: bill.lender.profilePicture
+                                  ? `${API_URL}${bill.lender.profilePicture}`
+                                  : 'https://static.vecteezy.com/system/resources/previews/054/343/112/non_2x/a-person-icon-in-a-circle-free-png.png',
+                              }}
+                              style={styles.lenderAvatar}
+                            />
+                            <View>
+                              <Text style={styles.lenderName}>
+                                {bill.lender.name}
+                              </Text>
+                              <Text style={styles.lenderEmail}>
+                                {bill.lender.email}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+
+                        {/* KANAN */}
+                        <View style={styles.amountContainer}>
+                          <Text style={styles.billAmount}>
+                            Rp{bill.amount.toLocaleString()}
+                          </Text>
+                          <Text style={styles.billAmountLabel}>
+                            Total Tagihan
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Preview Items */}
+                      <View style={styles.previewContainer}>
+                        <View style={styles.previewHeader}>
+                          <Text style={styles.previewTitle}>Preview Items</Text>
+                          <View style={styles.previewCountBadge}>
+                            <Text style={styles.previewCountText}>
+                              {bill.items.length} item
                             </Text>
                           </View>
-                          <Text style={styles.previewItemPrice}>
-                            Rp{(item.qty * item.price).toLocaleString()}
+                        </View>
+                        <View style={styles.previewDivider} />
+
+                        {bill.items.slice(0, 3).map(item => (
+                          <View key={item.id} style={styles.previewItem}>
+                            <View style={styles.previewItemLeft}>
+                              <Text
+                                style={styles.previewItemName}
+                                numberOfLines={1}
+                              >
+                                {item.name}
+                              </Text>
+                              <Text style={styles.previewItemQty}>
+                                {item.qty}x
+                              </Text>
+                            </View>
+                            <Text style={styles.previewItemPrice}>
+                              Rp
+                              {(
+                                item.qty * item.price -
+                                (item.voucher || 0)
+                              ).toLocaleString()}
+                            </Text>
+                          </View>
+                        ))}
+
+                        {bill.items.length > 3 && (
+                          <View style={styles.previewMoreContainer}>
+                            <Text style={styles.previewMoreText}>
+                              +{bill.items.length - 3} item lainnya
+                            </Text>
+                          </View>
+                        )}
+
+                        <View style={styles.previewTotal}>
+                          <Text style={styles.previewTotalLabel}>
+                            Subtotal Items
+                          </Text>
+                          <Text style={styles.previewTotalAmount}>
+                            Rp
+                            {bill.items
+                              .reduce(
+                                (sum, item) =>
+                                  sum +
+                                  (item.qty * item.price - (item.voucher || 0)),
+                                0,
+                              )
+                              .toLocaleString()}
                           </Text>
                         </View>
-                      ))}
+                      </View>
 
-                      {/* More items indicator - lebih clean */}
-                      {bill.items.length > 3 && (
-                        <View style={styles.previewMoreContainer}>
-                          <Text style={styles.previewMoreText}>
-                            +{bill.items.length - 3} item lainnya
-                          </Text>
-                        </View>
-                      )}
-
-                      {/* Total keseluruhan (optional) */}
-                      <View style={styles.previewTotal}>
-                        <Text style={styles.previewTotalLabel}>Total</Text>
-                        <Text style={styles.previewTotalAmount}>
-                          Rp
-                          {bill.items
-                            .reduce(
-                              (sum, item) => sum + item.qty * item.price,
-                              0,
-                            )
-                            .toLocaleString()}
-                        </Text>
+                      {/* Action Buttons */}
+                      <View style={styles.actionButtons}>
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          onPress={() => handleViewDetail(bill)}
+                          style={{ flex: 1 }}
+                        >
+                          <LinearGradient
+                            colors={['#4A70A9', '#2D4365']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 0, y: 1 }}
+                            style={styles.actionButton}
+                          >
+                            <Text style={styles.actionButtonText}>Detail</Text>
+                          </LinearGradient>
+                        </TouchableOpacity>
                       </View>
                     </View>
-
-                    {/* Action Buttons */}
-                    <View style={styles.actionButtons}>
-                      <TouchableOpacity
-                        activeOpacity={0.8}
-                        onPress={() => handleViewDetail(bill)}
-                        style={{ flex: 1 }}
-                      >
-                        <LinearGradient
-                          colors={['#4A70A9', '#2D4365']}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 0, y: 1 }}
-                          style={styles.actionButton}
-                        >
-                          <Text style={styles.actionButtonText}>Detail</Text>
-                        </LinearGradient>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))}
+                  );
+                })}
               </ScrollView>
 
               {/* Tips Section */}
@@ -970,10 +885,10 @@ const MyBills = () => {
                       • Klik "Bayar" untuk menghubungi lender via WhatsApp
                     </Text>
                     <Text style={styles.tipText}>
-                      • Screenshot bukti transfer dan kirim ke lender
+                      • Upload bukti transfer agar lender bisa konfirmasi
                     </Text>
                     <Text style={styles.tipText}>
-                      • Simpan detail tagihan dengan klik "Share"
+                      • Tagihan hilang otomatis setelah dikonfirmasi lender
                     </Text>
                   </View>
                 </View>
@@ -995,6 +910,7 @@ const MyBills = () => {
                   onPress={() => {
                     setShowDetail(false);
                     setSelectedBill(null);
+                    setSelectedBillDetail(null);
                   }}
                 >
                   <Text style={styles.closeButton}>×</Text>
@@ -1017,7 +933,6 @@ const MyBills = () => {
                         }}
                         style={styles.lenderAvatar}
                       />
-
                       <View>
                         <Text style={styles.lenderName}>
                           {selectedBill.lender.name}
@@ -1031,7 +946,6 @@ const MyBills = () => {
 
                   {/* Amount to Pay */}
                   <View style={styles.myBillSection}>
-                    {/* Header dengan icon dan badge jumlah item */}
                     <View style={styles.sectionHeader}>
                       <View style={styles.sectionTitleContainer}>
                         <View
@@ -1071,7 +985,6 @@ const MyBills = () => {
                       </View>
                     </View>
 
-                    {/* Amount Card - Simple & Clean */}
                     <View style={styles.myBillAmountContainer}>
                       <Text style={styles.myBillAmountLabel}>
                         Jumlah yang harus dibayar:
@@ -1081,7 +994,6 @@ const MyBills = () => {
                       </Text>
                     </View>
 
-                    {/* Items yang saya pesan - Style sama persis kayak items section */}
                     {loadingDetail ? (
                       <View
                         style={{ paddingVertical: 24, alignItems: 'center' }}
@@ -1102,7 +1014,6 @@ const MyBills = () => {
                           <View style={styles.myBillItems}>
                             {selectedBillDetail.myItems.map(item => (
                               <View key={item.id} style={styles.itemCard}>
-                                {/* Kiri: Nama + Detail */}
                                 <View style={styles.itemInfo}>
                                   <View style={styles.itemNameContainer}>
                                     <Text style={styles.itemQtyBadge}>
@@ -1121,8 +1032,6 @@ const MyBills = () => {
                                     @Rp{item.price.toLocaleString()}
                                   </Text>
                                 </View>
-
-                                {/* Kanan: Total Harga */}
                                 <View style={styles.itemPriceContainer}>
                                   <Text style={styles.myBillItemPrice}>
                                     Rp{item.myCost.toLocaleString()}
@@ -1139,22 +1048,13 @@ const MyBills = () => {
                               color={isDarkMode ? '#4b5563' : '#9ca3af'}
                             />
                             <Text style={styles.emptyText}>
-                              Anda tidak memesan item apapun
-                            </Text>
-                            <Text
-                              style={[
-                                styles.emptyText,
-                                { fontSize: 12, marginTop: 4 },
-                              ]}
-                            >
-                              Tagihan ini mungkin dari split rata
+                              Tagihan ini dari split rata
                             </Text>
                           </View>
                         )}
                       </>
                     )}
 
-                    {/* Footer Total Tagihan */}
                     {selectedBillDetail?.myItems?.length > 0 && (
                       <View style={styles.itemsFooter}>
                         <View style={styles.footerDivider} />
@@ -1167,7 +1067,8 @@ const MyBills = () => {
                           </Text>
                         </View>
                         <Text style={styles.myBillNote}>
-                          *Sudah termasuk porsi yang Anda pesan
+                          *Sudah termasuk porsi yang Anda pesan dan juga biaya
+                          layanan jika ada.
                         </Text>
                       </View>
                     )}
@@ -1175,7 +1076,6 @@ const MyBills = () => {
 
                   {/* Items Detail */}
                   <View style={styles.itemsSection}>
-                    {/* Header Section dengan Badge */}
                     <View style={styles.sectionHeader}>
                       <View style={styles.sectionTitleContainer}>
                         <View style={styles.sectionIconContainer}>
@@ -1194,14 +1094,12 @@ const MyBills = () => {
                       </View>
                     </View>
 
-                    {/* Items List - LEFT: nama & qty, RIGHT: total harga */}
                     <ScrollView
                       style={styles.itemsScrollView}
                       showsVerticalScrollIndicator={false}
                     >
-                      {selectedBill.items.map((item, index) => (
+                      {selectedBill.items.map(item => (
                         <View key={item.id} style={styles.itemCard}>
-                          {/* Kiri: Nama + Detail */}
                           <View style={styles.itemInfo}>
                             <View style={styles.itemNameContainer}>
                               <Text style={styles.itemQtyBadge}>
@@ -1215,17 +1113,34 @@ const MyBills = () => {
                               Rp{item.price.toLocaleString()}
                             </Text>
                           </View>
-
-                          {/* Kanan: Total Harga */}
                           <View style={styles.itemPriceContainer}>
+                            {item.voucher > 0 && (
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  color: '#9ca3af',
+                                  textDecorationLine: 'line-through',
+                                }}
+                              >
+                                Rp{(item.qty * item.price).toLocaleString()}
+                              </Text>
+                            )}
                             <Text style={styles.itemPrice}>
-                              Rp{(item.qty * item.price).toLocaleString()}
+                              Rp
+                              {(
+                                item.qty * item.price -
+                                (item.voucher || 0)
+                              ).toLocaleString()}
                             </Text>
+                            {item.voucher > 0 && (
+                              <Text style={{ fontSize: 11, color: '#16a34a' }}>
+                                Hemat Rp{item.voucher.toLocaleString()}
+                              </Text>
+                            )}
                           </View>
                         </View>
                       ))}
 
-                      {/* Empty State */}
                       {selectedBill.items.length === 0 && (
                         <View style={styles.emptyContainer}>
                           <Icon
@@ -1238,7 +1153,6 @@ const MyBills = () => {
                       )}
                     </ScrollView>
 
-                    {/* Footer Total (optional) */}
                     {selectedBill.items.length > 0 && (
                       <View style={styles.itemsFooter}>
                         <View style={styles.footerDivider} />
@@ -1248,7 +1162,9 @@ const MyBills = () => {
                             Rp
                             {selectedBill.items
                               .reduce(
-                                (sum, item) => sum + item.qty * item.price,
+                                (sum, item) =>
+                                  sum +
+                                  (item.qty * item.price - (item.voucher || 0)),
                                 0,
                               )
                               .toLocaleString()}
@@ -1260,7 +1176,7 @@ const MyBills = () => {
 
                   <PaymentInfoCard user={selectedBill.lender} />
 
-                  {/* Action Buttons */}
+                  {/* Action Buttons berdasarkan status */}
                   <TouchableOpacity
                     activeOpacity={0.8}
                     onPress={() => handlePayBill(selectedBill)}
@@ -1278,6 +1194,53 @@ const MyBills = () => {
                     </LinearGradient>
                   </TouchableOpacity>
 
+                  {/* ✅ Upload bukti — hanya jika UNPAID */}
+                  {selectedBill.status === 'UNPAID' && (
+                    <UploadProofButton
+                      billSplitId={selectedBill.billSplitId}
+                      onUploadSuccess={() => {
+                        Alert.alert(
+                          'Sukses',
+                          'Bukti terkirim, menunggu konfirmasi lender',
+                        );
+                        // ✅ Refresh status di modal
+                        handleViewDetail(selectedBill);
+                        // ✅ Refresh list bills
+                        fetchMyBills();
+                      }}
+                    />
+                  )}
+
+                  {/* ✅ Status PAID */}
+                  {selectedBill.status === 'PAID' && (
+                    <View
+                      style={[
+                        styles.modalButton,
+                        { backgroundColor: '#f59e0b', opacity: 0.8 },
+                      ]}
+                    >
+                      <Icon name="clock-outline" size={20} color="#fff" />
+                      <Text style={styles.modalButtonText}>
+                        Menunggu Konfirmasi Lender
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* ✅ Status CONFIRMED */}
+                  {selectedBill.status === 'CONFIRMED' && (
+                    <View
+                      style={[
+                        styles.modalButton,
+                        { backgroundColor: '#10b981' },
+                      ]}
+                    >
+                      <Icon name="check-circle" size={20} color="#fff" />
+                      <Text style={styles.modalButtonText}>
+                        Pembayaran Dikonfirmasi ✓
+                      </Text>
+                    </View>
+                  )}
+
                   <TouchableOpacity
                     activeOpacity={0.8}
                     onPress={() => handleShareBill(selectedBill)}
@@ -1294,8 +1257,12 @@ const MyBills = () => {
                     </Text>
                   </TouchableOpacity>
 
-                  {/* Footer Note */}
-                  <View style={styles.noteCard}>
+                  <LinearGradient
+                    colors={['#4A70A9', '#2D4365']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 0, y: 1 }}
+                    style={styles.noteCard}
+                  >
                     <View
                       style={{ flexDirection: 'row', alignItems: 'flex-start' }}
                     >
@@ -1305,16 +1272,15 @@ const MyBills = () => {
                           styles.noteText,
                           { fontSize: 20, marginRight: 12 },
                         ]}
-                        color={isDarkMode ? '#f0f0f0' : '#000'}
+                        color={isDarkMode ? '#f0f0f0' : '#252525'}
                       />
-
                       <Text style={[styles.noteText, { flex: 1 }]}>
                         <Text style={{ fontWeight: 'bold' }}>Catatan:</Text>{' '}
-                        Setelah melakukan transfer, jangan lupa kirim bukti
-                        pembayaran ke lender untuk konfirmasi.
+                        Setelah melakukan transfer, upload bukti pembayaran agar
+                        lender bisa konfirmasi.
                       </Text>
                     </View>
-                  </View>
+                  </LinearGradient>
                 </>
               )}
             </ScrollView>

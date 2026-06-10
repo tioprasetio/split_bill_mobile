@@ -18,6 +18,18 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isMaintenance, setIsMaintenance] = useState(false);
+
+  const checkMaintenance = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/maintenance-status`);
+      const data = await res.json();
+      setIsMaintenance(data.maintenance);
+    } catch (err) {
+      // Kalau gagal fetch, anggap tidak maintenance (fail-open)
+      setIsMaintenance(false);
+    }
+  };
 
   // 🔒 Cek masa berlaku token
   const checkTokenExpiration = token => {
@@ -77,7 +89,7 @@ export const AuthProvider = ({ children }) => {
         accountHolder,
         photo: photo ? 'Ada' : 'Tidak ada',
       });
-      
+
       const formData = new FormData();
       formData.append('name', name);
       formData.append('email', email);
@@ -100,13 +112,18 @@ export const AuthProvider = ({ children }) => {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      Alert.alert('Berhasil', 'Akun berhasil dibuat!');
+      return true;
     } catch (error) {
-      console.log('Register error:', error.response?.data || error.message);
+      console.log('❌ FULL ERROR:', error);
+      console.log('❌ RESPONSE DATA:', error.response?.data);
+      console.log('❌ STATUS:', error.response?.status);
       Alert.alert(
         'Gagal daftar',
-        error.response?.data?.message || 'Terjadi kesalahan',
+        error.response?.data?.message
+          ? error.response.data.message
+          : JSON.stringify(error.response?.data || error.message),
       );
+      return false;
     }
   };
 
@@ -144,7 +161,11 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    checkUser();
+    const init = async () => {
+      await checkMaintenance();
+      await checkUser();
+    };
+    init();
   }, [checkUser]);
 
   // 🕓 Cek token tiap 30 menit
@@ -161,7 +182,16 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider
-      value={{ user, isLoggedIn, loading, login, register, logout, setUser }}
+      value={{
+        user,
+        isLoggedIn,
+        loading,
+        login,
+        register,
+        logout,
+        setUser,
+        isMaintenance,
+      }}
     >
       {children}
     </AuthContext.Provider>

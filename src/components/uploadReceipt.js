@@ -29,6 +29,8 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
   const [token, setToken] = useState(null);
   const [receiptFile, setReceiptFile] = useState(null);
   const [receiptUri, setReceiptUri] = useState(null);
+  const [taxKey, setTaxKey] = useState('none');
+  const [showTaxDropdown, setShowTaxDropdown] = useState(false);
   const [users, setUsers] = useState([]);
   const [loadingParse, setLoadingParse] = useState(false);
   const [loadingSave, setLoadingSave] = useState(false);
@@ -44,6 +46,13 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
     isOpen: false,
     item: null,
   });
+
+  const TAX_OPTIONS = [
+    { key: 'none', label: 'Pajak sudah termasuk di harga', value: 0 },
+    { key: 'pb1', label: 'PB1 (10%)', value: 10 },
+    { key: 'ppn', label: 'PPN (11%)', value: 11 },
+  ];
+  const taxPercent = TAX_OPTIONS.find(o => o.key === taxKey)?.value ?? 0;
 
   // Kamera
   const [showCamera, setShowCamera] = useState(false);
@@ -62,7 +71,13 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
         },
       });
       const data = await res.json();
-      setUsers(data.filter(u => u.id !== user?.id));
+      const filteredUsers = data.filter(
+        u =>
+          u.id !== user?.id &&
+          u.name !== 'Administrator' &&
+          u.email !== 'admin@splitbill.com',
+      );
+      setUsers(filteredUsers);
     } catch (err) {
       console.error('Failed to load users', err);
     }
@@ -156,8 +171,13 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
   };
 
   const handleParseReceipt = async () => {
-    if (!receiptFile || participants.length === 0) {
-      Alert.alert('Error', 'Upload struk dan pilih participants dulu!');
+    if (!receiptFile) {
+      Alert.alert('Error', 'Pilih foto struk dulu!');
+      return;
+    }
+
+    if (participants.length === 0) {
+      Alert.alert('Error', 'Pilih minimal 1 participant dulu!');
       return;
     }
 
@@ -216,6 +236,11 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
         'Berhasil',
         "Receipt berhasil di-parse! Silakan edit jika perlu dan klik 'Simpan & Hitung Split'",
       );
+
+      console.log(
+        '📦 Parsed items dari backend:',
+        JSON.stringify(data.parsedData.items, null, 2),
+      );
     } catch (err) {
       console.error(err);
       Alert.alert('Error', 'Gagal memproses receipt');
@@ -245,6 +270,7 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
             name: item.name,
             qty: item.qty,
             price: item.price,
+            voucher: item.voucher || 0,
             assignees: item.assignees || [],
             customSplits: item.customSplits || [],
           })),
@@ -254,10 +280,19 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
           splitMode: parsedData.splitMode,
           tempFilename: tempFilename,
           rawText: parsedData.rawText,
+          taxPercent: taxPercent,
         }),
       });
 
       const data = await res.json();
+      if (!res.ok) {
+        if (data.errorType === 'unassigned_items') {
+          Alert.alert('Belum Lengkap', data.error);
+        } else {
+          Alert.alert('Error', 'Gagal menyimpan receipt');
+        }
+        return;
+      }
 
       setUploadedReceipt(data.receipt);
 
@@ -335,32 +370,31 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
 
   const styles = StyleSheet.create({
     container: {
-      backgroundColor: isDarkMode ? '#404040' : '#fff',
+      backgroundColor: isDarkMode ? '#1f2937' : '#fff',
       padding: 16,
-      marginBottom: 16,
       borderRadius: 8,
-      marginTop: 16,
+      marginTop: 8,
     },
     title: {
       fontSize: 16,
       fontWeight: '600',
       marginBottom: 16,
-      color: isDarkMode ? '#f0f0f0' : '#000',
+      color: isDarkMode ? '#f0f0f0' : '#252525',
     },
     label: {
       fontSize: 14,
       fontWeight: '500',
       marginBottom: 4,
-      color: isDarkMode ? '#f0f0f0' : '#000',
+      color: isDarkMode ? '#f0f0f0' : '#252525',
     },
     input: {
-      backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
+      backgroundColor: isDarkMode ? '#111827' : '#fff',
       borderWidth: 1,
-      borderColor: isDarkMode ? '#555' : '#d1d5db',
+      borderColor: isDarkMode ? '#374151' : '#d1d5db',
       borderRadius: 100,
       paddingHorizontal: 12,
       paddingVertical: 8,
-      color: isDarkMode ? '#f0f0f0' : '#000',
+      color: isDarkMode ? '#f0f0f0' : '#252525',
       marginBottom: 12,
     },
     buttonBase: {
@@ -415,9 +449,9 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
     itemContainer: {
       padding: 12,
       borderWidth: 1,
-      borderColor: isDarkMode ? '#555' : '#e5e7eb',
+      borderColor: isDarkMode ? '#374151' : '#e5e7eb',
       borderRadius: 8,
-      backgroundColor: isDarkMode ? '#2a2a2a' : '#f9fafb',
+      backgroundColor: isDarkMode ? '#111827' : '#f9fafb',
       marginBottom: 12,
     },
     splitResult: {
@@ -426,9 +460,9 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
       alignItems: 'center',
       padding: 16,
       borderWidth: 1,
-      borderColor: isDarkMode ? '#555' : '#e5e7eb',
+      borderColor: isDarkMode ? '#374151' : '#e5e7eb',
       borderRadius: 12,
-      backgroundColor: isDarkMode ? '#2a2a2a' : '#fff',
+      backgroundColor: isDarkMode ? '#111827' : '#fff',
       marginBottom: 12,
     },
     cameraContainer: {
@@ -529,7 +563,7 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
                   />
                 )}
               </View>
-              <Text style={{ color: isDarkMode ? '#f0f0f0' : '#000' }}>
+              <Text style={{ color: isDarkMode ? '#f0f0f0' : '#252525' }}>
                 Bagi Rata
               </Text>
             </TouchableOpacity>
@@ -562,7 +596,7 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
                   />
                 )}
               </View>
-              <Text style={{ color: isDarkMode ? '#f0f0f0' : '#000' }}>
+              <Text style={{ color: isDarkMode ? '#f0f0f0' : '#252525' }}>
                 Per Item
               </Text>
             </TouchableOpacity>
@@ -605,7 +639,9 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
                 .filter(
                   u =>
                     u.name.toLowerCase().includes(search.toLowerCase()) ||
-                    u.email.toLowerCase().includes(search.toLowerCase()),
+                    (u.email.toLowerCase().includes(search.toLowerCase()) &&
+                      u.name !== 'Administrator' &&
+                      u.email !== 'admin@splitbill.com'),
                 )
                 .filter(u => !participants.find(p => p.id === u.id))
                 .map(u => (
@@ -621,7 +657,7 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
                       borderBottomColor: isDarkMode ? '#444' : '#e5e7eb',
                     }}
                   >
-                    <Text style={{ color: isDarkMode ? '#f0f0f0' : '#000' }}>
+                    <Text style={{ color: isDarkMode ? '#f0f0f0' : '#252525' }}>
                       {u.name} ({u.email})
                     </Text>
                   </TouchableOpacity>
@@ -712,6 +748,115 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
                 placeholder="Misalnya: Makan Malam Bareng"
                 placeholderTextColor="#999"
               />
+
+              <View style={{ marginBottom: 12 }}>
+                <Text style={styles.label}>Pajak</Text>
+
+                {/* Trigger Button */}
+                <TouchableOpacity
+                  onPress={() => setShowTaxDropdown(true)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    borderWidth: 1,
+                    borderColor: isDarkMode ? '#374151' : '#d1d5db',
+                    borderRadius: 100,
+                    paddingHorizontal: 16,
+                    paddingVertical: 10,
+                    backgroundColor: isDarkMode ? '#111827' : '#fff',
+                    marginTop: 4,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: isDarkMode ? '#f0f0f0' : '#252525',
+                      fontSize: 14,
+                    }}
+                  >
+                    {TAX_OPTIONS.find(o => o.key === taxKey)?.label}
+                  </Text>
+                  <Icon
+                    name="chevron-down"
+                    size={18}
+                    color={isDarkMode ? '#9ca3af' : '#6b7280'}
+                  />
+                </TouchableOpacity>
+
+                {/* Dropdown Modal */}
+                <Modal
+                  visible={showTaxDropdown}
+                  transparent
+                  animationType="fade"
+                  onRequestClose={() => setShowTaxDropdown(false)}
+                >
+                  <TouchableOpacity
+                    style={{
+                      flex: 1,
+                      backgroundColor: 'rgba(0,0,0,0.3)',
+                      justifyContent: 'center',
+                      paddingHorizontal: 32,
+                    }}
+                    activeOpacity={1}
+                    onPress={() => setShowTaxDropdown(false)}
+                  >
+                    <View
+                      style={{
+                        backgroundColor: isDarkMode ? '#1f2937' : '#fff',
+                        borderRadius: 12,
+                        overflow: 'hidden',
+                        elevation: 8,
+                      }}
+                    >
+                      {TAX_OPTIONS.map((option, idx) => (
+                        <TouchableOpacity
+                          key={option.key}
+                          onPress={() => {
+                            setTaxKey(option.key);
+                            setShowTaxDropdown(false);
+                          }}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            paddingHorizontal: 16,
+                            paddingVertical: 14,
+                            borderBottomWidth:
+                              idx < TAX_OPTIONS.length - 1 ? 1 : 0,
+                            borderBottomColor: isDarkMode
+                              ? '#374151'
+                              : '#e5e7eb',
+                            backgroundColor:
+                              taxKey === option.key
+                                ? isDarkMode
+                                  ? '#1e3a5f'
+                                  : '#DCEAFF'
+                                : 'transparent',
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 14,
+                              fontWeight: taxKey === option.key ? '600' : '400',
+                              color:
+                                taxKey === option.key
+                                  ? '#79A8EF'
+                                  : isDarkMode
+                                  ? '#f0f0f0'
+                                  : '#252525',
+                            }}
+                          >
+                            {option.label}
+                          </Text>
+                          {taxKey === option.key && (
+                            <Icon name="check" size={18} color="#79A8EF" />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </TouchableOpacity>
+                </Modal>
+              </View>
             </View>
           )}
 
@@ -757,6 +902,7 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
                   keyboardType="numeric"
                   placeholder="Harga"
                 />
+
                 {/* 🔥 TOMBOL HAPUS ITEM */}
                 <TouchableOpacity
                   onPress={() => {
@@ -779,7 +925,32 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
               </View>
 
               <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
-                Subtotal: Rp{(item.qty * item.price).toLocaleString()}
+                Voucher
+              </Text>
+              <TextInput
+                value={String(item.voucher || 0)}
+                onChangeText={text => {
+                  const newItems = [...parsedData.items];
+                  newItems[idx].voucher = Number(text);
+                  setParsedData({ ...parsedData, items: newItems });
+                }}
+                style={[
+                  styles.input,
+                  { width: 90, textAlign: 'right', marginBottom: 0 },
+                ]}
+                keyboardType="numeric"
+                placeholder="Voucher"
+              />
+
+              <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
+                Subtotal: Rp
+                {(item.qty * item.price - (item.voucher || 0)).toLocaleString()}
+                {item.voucher > 0 && (
+                  <Text style={{ color: '#16a34a' }}>
+                    {' '}
+                    (hemat Rp{item.voucher.toLocaleString()})
+                  </Text>
+                )}
               </Text>
 
               {/* Assign participants untuk mode perItem */}
@@ -839,7 +1010,7 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
                               marginRight: 8,
                               marginBottom: 8,
                               backgroundColor: item.assignees?.includes(p.id)
-                                ? '#dcfce7'
+                                ? '#DCE3FC'
                                 : isDarkMode
                                 ? '#1a1a1a'
                                 : '#fff',
@@ -849,10 +1020,10 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
                               style={{
                                 fontSize: 12,
                                 color: item.assignees?.includes(p.id)
-                                  ? '#166534'
+                                  ? '#163F65'
                                   : isDarkMode
                                   ? '#f0f0f0'
-                                  : '#000',
+                                  : '#252525',
                               }}
                             >
                               {p.id === user?.id ? `${p.name} (Saya)` : p.name}
@@ -912,12 +1083,57 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
               marginBottom: 16,
             }}
           >
-            <Text style={{ fontWeight: '600', color: '#166534' }}>
-              Total: Rp
-              {parsedData.items
-                ?.reduce((sum, item) => sum + item.qty * item.price, 0)
-                .toLocaleString()}
-            </Text>
+            {(() => {
+              const subtotal =
+                parsedData.items?.reduce(
+                  (sum, item) =>
+                    sum + (item.qty * item.price - (item.voucher || 0)),
+                  0,
+                ) || 0;
+              const taxAmount = Math.round((subtotal * taxPercent) / 100);
+              const grandTotal = subtotal + taxAmount;
+
+              return (
+                <>
+                  <Text style={{ fontWeight: '600', color: '#166534' }}>
+                    Subtotal: Rp{subtotal.toLocaleString()}
+                  </Text>
+
+                  {taxPercent > 0 && (
+                    <Text
+                      style={{ fontSize: 13, color: '#166534', marginTop: 4 }}
+                    >
+                      Pajak {taxPercent}%: Rp{taxAmount.toLocaleString()}
+                    </Text>
+                  )}
+
+                  <Text
+                    style={{
+                      fontWeight: '700',
+                      color: '#166534',
+                      marginTop: 4,
+                      fontSize: 15,
+                    }}
+                  >
+                    Total: Rp{grandTotal.toLocaleString()}
+                  </Text>
+
+                  {parsedData.items?.reduce(
+                    (sum, item) => sum + (item.voucher || 0),
+                    0,
+                  ) > 0 && (
+                    <Text
+                      style={{ fontSize: 12, color: '#16a34a', marginTop: 4 }}
+                    >
+                      Yey, kamu hemat Rp
+                      {parsedData.items
+                        ?.reduce((sum, item) => sum + (item.voucher || 0), 0)
+                        .toLocaleString()}
+                    </Text>
+                  )}
+                </>
+              );
+            })()}
           </View>
 
           {/* Tombol Simpan & Hitung Split */}
@@ -972,7 +1188,7 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
               <Text
                 style={{
                   fontWeight: '500',
-                  color: isDarkMode ? '#f0f0f0' : '#000',
+                  color: isDarkMode ? '#f0f0f0' : '#252525',
                 }}
               >
                 {s.participantName}

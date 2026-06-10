@@ -21,10 +21,30 @@ const COLORS = {
   primary: '#4A70A9',
   secondary: '#2D4365',
   danger: '#ff6b6b',
-  darkBg: '#140C00',
+  success: '#4CAF50',
+  warning: '#FF9800',
+  darkBg: '#111827',
   lightBg: '#f4f6f9',
   darkCard: '#404040',
   lightCard: '#fff',
+};
+
+// ─── HELPER: hitung warna skor ─────────────────────────────────────────────
+const getScoreColor = score => {
+  if (score >= 80) return '#4CAF50';
+  if (score >= 60) return '#FF9800';
+  if (score >= 40) return '#FF5722';
+  return '#f44336';
+};
+
+// ─── HELPER: group daftar_item (flat) by toko ──────────────────────────────
+const groupItemsByToko = (daftarItem = []) => {
+  const grouped = {};
+  daftarItem.forEach(item => {
+    if (!grouped[item.toko]) grouped[item.toko] = [];
+    grouped[item.toko].push(item);
+  });
+  return Object.entries(grouped).map(([toko, items]) => ({ toko, items }));
 };
 
 const SummaryPage = () => {
@@ -36,22 +56,16 @@ const SummaryPage = () => {
   const [summaries, setSummaries] = useState([]);
   const [selectedSummary, setSelectedSummary] = useState(null);
 
-  // 🔥 PAKE useCallback biar function gak re-create terus
   const fetchSummaries = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem('token');
-
       const response = await fetch(`${API_URL}/api/health-summary`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
       const result = await response.json();
-
       if (response.ok) {
         setSummaries(result.data || []);
-        if (result.data?.length > 0) {
-          setSelectedSummary(result.data[0]);
-        }
+        if (result.data?.length > 0) setSelectedSummary(result.data[0]);
       }
     } catch (err) {
       Alert.alert('Error', 'Gagal mengambil data summary');
@@ -59,28 +73,25 @@ const SummaryPage = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []); // 🔥 dependensi kosong karena API_URL dari env
+  }, []);
 
   const generateNewSummary = useCallback(async () => {
     try {
       setGenerating(true);
       const token = await AsyncStorage.getItem('token');
-
-      const response = await fetch(`${API_URL}/api/health-summary/weekly`, {
+      const response = await fetch(`${API_URL}/api/health-summary/daily`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
       });
-
       const result = await response.json();
-
       if (response.ok) {
         Alert.alert('Sukses', 'Analisis berhasil dibuat!');
         await fetchSummaries();
       } else if (result.error?.includes('udah pernah')) {
-        Alert.alert('Info', 'Summary minggu ini sudah pernah dibuat');
+        Alert.alert('Info', 'Summary hari ini sudah pernah dibuat');
         await fetchSummaries();
       } else {
         Alert.alert('Error', result.error || 'Gagal generate summary');
@@ -90,7 +101,7 @@ const SummaryPage = () => {
     } finally {
       setGenerating(false);
     }
-  }, [fetchSummaries]); // 🔥 dependensi fetchSummaries
+  }, [fetchSummaries]);
 
   useEffect(() => {
     fetchSummaries();
@@ -103,14 +114,20 @@ const SummaryPage = () => {
 
   const getBgColor = (light, dark) => (isDarkMode ? dark : light);
 
+  const structured = selectedSummary?.rawData?.structured;
+  const ringkasan = selectedSummary?.rawData?.transactions?.ringkasan;
+  const groupedReceipts = groupItemsByToko(
+    selectedSummary?.rawData?.transactions?.daftar_item,
+  );
+
   const dynamicStyles = {
     receiptCard: {
-      backgroundColor: getBgColor('#f8f9fa', '#2a2a2a'),
+      backgroundColor: getBgColor('#f8f9fa', '#111827'),
       borderRadius: 12,
       padding: 12,
       marginBottom: 12,
       borderWidth: 1,
-      borderColor: getBgColor('#e0e0e0', '#404040'),
+      borderColor: getBgColor('#e0e0e0', '#161F31'),
     },
     storeHeader: {
       flexDirection: 'row',
@@ -124,7 +141,7 @@ const SummaryPage = () => {
     itemCard: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: getBgColor('#ffffff', '#1a1a1a'),
+      backgroundColor: getBgColor('#ffffff', '#1f2937'),
       borderRadius: 8,
       paddingVertical: 6,
       paddingHorizontal: 10,
@@ -204,7 +221,7 @@ const SummaryPage = () => {
           <View
             style={[
               styles.emptyContainer,
-              { backgroundColor: getBgColor('#fff', '#404040') },
+              { backgroundColor: getBgColor('#fff', '#1f2937') },
             ]}
           >
             <Icon name="food-off" size={64} color="#999" />
@@ -264,10 +281,10 @@ const SummaryPage = () => {
                   <LinearGradient
                     colors={
                       selectedSummary?.id === summary.id
-                        ? [COLORS.primary, COLORS.secondary] // Active: primary ke secondary
+                        ? [COLORS.primary, COLORS.secondary]
                         : isDarkMode
-                        ? ['#404040', '#2a2a2a'] // Dark mode: dark gradient
-                        : ['#fff', '#f0f0f0'] // Light mode: light gradient
+                        ? ['#1f2937', '#111827']
+                        : ['#fff', '#f0f0f0']
                     }
                     start={{ x: 0, y: 0 }}
                     end={{ x: 0, y: 1 }}
@@ -296,10 +313,10 @@ const SummaryPage = () => {
               <View
                 style={[
                   styles.detailCard,
-                  { backgroundColor: getBgColor('#fff', '#404040') },
+                  { backgroundColor: getBgColor('#fff', '#1f2937') },
                 ]}
               >
-                {/* AI Summary */}
+                {/* ── 1. HEADLINE ─────────────────────────────────────────── */}
                 <View style={styles.aiSection}>
                   <View style={styles.sectionHeader}>
                     <Icon name="robot" size={24} color={COLORS.primary} />
@@ -309,7 +326,7 @@ const SummaryPage = () => {
                         { color: getBgColor('#353535', '#f0f0f0') },
                       ]}
                     >
-                      Ringkasan
+                      Ringkasan Hari Ini
                     </Text>
                   </View>
                   <Text
@@ -322,39 +339,275 @@ const SummaryPage = () => {
                   </Text>
                 </View>
 
-                {/* Stats */}
+                {/* ── 2. SKOR KESEHATAN ────────────────────────────── */}
+                {structured?.score !== undefined && (
+                  <View
+                    style={[
+                      styles.scoreCard,
+                      { backgroundColor: getBgColor('#f0f8ff', '#0d1a2e') },
+                    ]}
+                  >
+                    <View style={styles.scoreInner}>
+                      {/* Kiri: label + progress bar */}
+                      <View style={{ flex: 1 }}>
+                        <View style={styles.scoreHeaderRow}>
+                          <Icon
+                            name="heart-pulse"
+                            size={14}
+                            color={getScoreColor(structured.score)}
+                          />
+                          <Text
+                            style={[
+                              styles.scoreTitleSmall,
+                              { color: getBgColor('#666', '#9ab') },
+                            ]}
+                          >
+                            Skor Kesehatan Hari Ini
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            styles.progressTrack,
+                            {
+                              backgroundColor: getBgColor(
+                                'rgba(0,0,0,0.07)',
+                                'rgba(255,255,255,0.1)',
+                              ),
+                            },
+                          ]}
+                        >
+                          <View
+                            style={[
+                              styles.progressBarFill,
+                              {
+                                width: `${structured.score}%`,
+                                backgroundColor: getScoreColor(
+                                  structured.score,
+                                ),
+                              },
+                            ]}
+                          />
+                        </View>
+                        <Text
+                          style={[
+                            styles.scoreLabelNew,
+                            { color: getScoreColor(structured.score) },
+                          ]}
+                        >
+                          {structured.scoreLabel}
+                        </Text>
+                      </View>
+
+                      {/* Kanan: angka bulat */}
+                      <View
+                        style={[
+                          styles.scoreBadge,
+                          { borderColor: getScoreColor(structured.score) },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.scoreBigNumber,
+                            { color: getScoreColor(structured.score) },
+                          ]}
+                        >
+                          {structured.score}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.scoreOutOf,
+                            { color: getBgColor('#bbb', '#666') },
+                          ]}
+                        >
+                          /100
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                {/* ── 3. STATS ─────────────────────────────────────────────── */}
                 <View style={styles.statsGrid}>
                   <View
                     style={[
                       styles.statCard,
-                      { backgroundColor: getBgColor('#f0f8ff', '#2a2a2a') },
+                      { backgroundColor: getBgColor('#f0f8ff', '#111827') },
                     ]}
                   >
                     <Icon name="receipt" size={32} color={COLORS.primary} />
-                    <Text style={styles.statNumber}>
-                      {selectedSummary.rawData?.length || 0}
+                    <Text
+                      style={[
+                        styles.statNumber,
+                        { color: getBgColor('#353535', '#f0f0f0') },
+                      ]}
+                    >
+                      {ringkasan?.jumlah_transaksi ?? 0}
                     </Text>
-                    <Text style={styles.statLabel}>Transaksi</Text>
+                    <Text style={[styles.statLabel, { color: '#999' }]}>
+                      Transaksi
+                    </Text>
                   </View>
-
                   <View
                     style={[
                       styles.statCard,
-                      { backgroundColor: getBgColor('#fff0f0', '#2a2a2a') },
+                      { backgroundColor: getBgColor('#fff0f0', '#111827') },
                     ]}
                   >
                     <Icon name="food" size={32} color={COLORS.danger} />
-                    <Text style={styles.statNumber}>
-                      {selectedSummary.rawData?.reduce(
-                        (sum, r) => sum + (r.items?.length || 0),
-                        0,
-                      ) || 0}
+                    <Text
+                      style={[
+                        styles.statNumber,
+                        { color: getBgColor('#353535', '#f0f0f0') },
+                      ]}
+                    >
+                      {ringkasan?.total_item ?? 0}
                     </Text>
-                    <Text style={styles.statLabel}>Total Item</Text>
+                    <Text style={[styles.statLabel, { color: '#999' }]}>
+                      Total Item
+                    </Text>
                   </View>
                 </View>
 
-                {/* Items List */}
+                {/* ── 4. INSIGHTS ──────────────────────────────────── */}
+                {structured?.insights?.length > 0 && (
+                  <View style={styles.blockSection}>
+                    <View style={styles.sectionHeader}>
+                      <Icon name="magnify" size={18} color={COLORS.primary} />
+                      <Text
+                        style={[
+                          styles.sectionTitle,
+                          { color: getBgColor('#353535', '#f0f0f0') },
+                        ]}
+                      >
+                        Insight
+                      </Text>
+                    </View>
+                    {structured.insights.map((insight, idx) => (
+                      <View
+                        key={idx}
+                        style={[
+                          styles.insightRow,
+                          { backgroundColor: getBgColor('#eef3ff', '#0d1b2e') },
+                        ]}
+                      >
+                        <View style={styles.insightAccent} />
+                        <Text
+                          style={[
+                            styles.insightText,
+                            { color: getBgColor('#353535', '#e0e0e0') },
+                          ]}
+                        >
+                          {insight}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* ── 5. APRESIASI POSITIF ─────────────────────────── */}
+                {structured?.positif &&
+                  structured.positif.toLowerCase() !== 'null' && (
+                    <LinearGradient
+                      colors={
+                        isDarkMode
+                          ? ['#0d2b18', '#1a4a2e']
+                          : ['#e8f5e9', '#c8e6c9']
+                      }
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.positifBanner}
+                    >
+                      <Icon
+                        name="star-circle"
+                        size={30}
+                        color={isDarkMode ? '#66bb6a' : '#2e7d32'}
+                      />
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <Text
+                          style={[
+                            styles.positifLabel,
+                            { color: isDarkMode ? '#a5d6a7' : '#1b5e20' },
+                          ]}
+                        >
+                          Apresiasi ✨
+                        </Text>
+                        <Text
+                          style={[
+                            styles.positifMsg,
+                            { color: isDarkMode ? '#c8e6c9' : '#2e7d32' },
+                          ]}
+                        >
+                          {structured.positif}
+                        </Text>
+                      </View>
+                    </LinearGradient>
+                  )}
+
+                {/* ── 6. REKOMENDASI ───────────────────────────────── */}
+                {structured?.rekomendasi?.length > 0 && (
+                  <View style={styles.blockSection}>
+                    <View style={styles.sectionHeader}>
+                      <Icon
+                        name="lightbulb-on-outline"
+                        size={18}
+                        color="#FF9800"
+                      />
+                      <Text
+                        style={[
+                          styles.sectionTitle,
+                          { color: getBgColor('#353535', '#f0f0f0') },
+                        ]}
+                      >
+                        Rekomendasi
+                      </Text>
+                    </View>
+                    {structured.rekomendasi.map((saran, idx) => (
+                      <View
+                        key={idx}
+                        style={[
+                          styles.rekRow,
+                          { backgroundColor: getBgColor('#fffbf2', '#1c1500') },
+                        ]}
+                      >
+                        <View style={styles.rekNumBadge}>
+                          <Text style={styles.rekNumText}>{idx + 1}</Text>
+                        </View>
+                        <Text
+                          style={[
+                            styles.rekText,
+                            { color: getBgColor('#353535', '#f0f0f0') },
+                          ]}
+                        >
+                          {saran}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* ── 7. TIPS BESOK ────────────────────────────────── */}
+                {structured?.tipsBesok && (
+                  <LinearGradient
+                    colors={['#1e3a5f', '#4A70A9']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.tomorrowCard}
+                  >
+                    <View style={styles.tomorrowHeader}>
+                      <Icon
+                        name="weather-sunset-up"
+                        size={18}
+                        color="rgba(255,255,255,0.7)"
+                      />
+                      <Text style={styles.tomorrowLabel}>Tips untuk Besok</Text>
+                    </View>
+                    <Text style={styles.tomorrowText}>
+                      {structured.tipsBesok}
+                    </Text>
+                  </LinearGradient>
+                )}
+
+                {/* ── 8. DAFTAR ITEM ───────────────────────────────── */}
                 <View style={styles.itemsSection}>
                   <Text
                     style={[
@@ -362,16 +615,22 @@ const SummaryPage = () => {
                       { color: getBgColor('#353535', '#f0f0f0') },
                     ]}
                   >
-                    Makanan & Minuman Minggu Ini:
+                    Item yang Dibeli Hari Ini:
                   </Text>
 
-                  {selectedSummary.rawData?.map((receipt, idx) => (
+                  {groupedReceipts.map((receipt, idx) => (
                     <View key={idx} style={dynamicStyles.receiptCard}>
                       <View style={dynamicStyles.storeHeader}>
                         <Icon name="store" size={18} color={COLORS.primary} />
-                        <Text style={styles.storeName}>{receipt.toko}</Text>
+                        <Text
+                          style={[
+                            styles.storeName,
+                            { color: getBgColor('#4A70A9', '#6396E2') },
+                          ]}
+                        >
+                          {receipt.toko}
+                        </Text>
                       </View>
-
                       <View style={styles.itemsContainer}>
                         {receipt.items.map((item, itemIdx) => (
                           <View key={itemIdx} style={dynamicStyles.itemCard}>
@@ -381,8 +640,15 @@ const SummaryPage = () => {
                                 { color: getBgColor('#353535', '#f0f0f0') },
                               ]}
                             >
-                              {item.nama} (
-                              <Text style={styles.itemQty}>{item.jumlah}x</Text>
+                              {item.nama} ({' '}
+                              <Text
+                                style={[
+                                  styles.itemQty,
+                                  { color: getBgColor('#4A70A9', '#6396E2') },
+                                ]}
+                              >
+                                {item.jumlah}x
+                              </Text>{' '}
                               )
                             </Text>
                           </View>
@@ -393,14 +659,14 @@ const SummaryPage = () => {
                 </View>
 
                 <Text style={styles.footerNote}>
-                  * Kamu bisa meminta analisis baru di hari Senin berikutnya
+                  * Analisis dibuat sekali per hari berdasarkan transaksi
+                  terbaru
                 </Text>
               </View>
             )}
           </>
         )}
-
-        <View style={{ height: 20 }} />
+        <View style={{ height: 0 }} />
       </ScrollView>
     </View>
   );
@@ -535,7 +801,6 @@ const styles = StyleSheet.create({
   storeName: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#4A70A9',
   },
   itemName: {
     fontSize: 14,
@@ -549,6 +814,164 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#999',
     fontStyle: 'italic',
+  },
+
+  // ── Score Card ──────────────────────────────────────────────────────────
+  scoreCard: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+  },
+  scoreInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  scoreHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  scoreTitleSmall: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  progressTrack: {
+    height: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 8,
+  },
+  scoreLabelNew: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  scoreBadge: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  scoreBigNumber: {
+    fontSize: 26,
+    fontWeight: 'bold',
+    lineHeight: 30,
+  },
+  scoreOutOf: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+
+  // ── Insight ─────────────────────────────────────────────────────────────
+  blockSection: {
+    marginBottom: 20,
+  },
+  insightRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    gap: 10,
+  },
+  insightAccent: {
+    width: 3,
+    borderRadius: 4,
+    alignSelf: 'stretch',
+    backgroundColor: '#4A70A9',
+    flexShrink: 0,
+  },
+  insightText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+
+  // ── Positif ─────────────────────────────────────────────────────────────
+  positifBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 20,
+  },
+  positifLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  positifMsg: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+
+  // ── Rekomendasi ─────────────────────────────────────────────────────────
+  rekRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    gap: 10,
+  },
+  rekNumBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FF9800',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+    flexShrink: 0,
+  },
+  rekNumText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  rekText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+
+  // ── Tips Besok ──────────────────────────────────────────────────────────
+  tomorrowCard: {
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 20,
+  },
+  tomorrowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  tomorrowLabel: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  tomorrowText: {
+    color: '#ffffff',
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '500',
   },
 });
 

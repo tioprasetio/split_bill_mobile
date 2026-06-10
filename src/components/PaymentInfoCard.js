@@ -3,8 +3,11 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Clipboard from '@react-native-clipboard/clipboard';
+import { useDarkMode } from '../contexts/DarkMode';
 
 const PaymentInfoCard = ({ user }) => {
+  const { isDarkMode } = useDarkMode();
+
   if (!user?.payment_method) return null;
 
   const copyToClipboard = text => {
@@ -31,6 +34,67 @@ const PaymentInfoCard = ({ user }) => {
         return method;
     }
   };
+
+  const styles = StyleSheet.create({
+    container: {
+      backgroundColor: isDarkMode ? '#111827' : '#FFFFFF',
+      borderRadius: 12,
+      padding: 16,
+      marginVertical: 8,
+      marginBottom: 24,
+      borderWidth: 1,
+      borderColor: isDarkMode ? '#374151' : '#F0F0F0',
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 12,
+    },
+    title: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: isDarkMode ? '#F0F0F0' : '#111827',
+    },
+    content: {
+      gap: 8,
+    },
+    method: {
+      fontSize: 14,
+      color: isDarkMode ? '#608CCF' : '#4A70A9',
+      fontWeight: '500',
+      marginBottom: 4,
+    },
+    label: {
+      fontSize: 14,
+      color: isDarkMode ? '#F0F0F0' : '#666',
+    },
+    value: {
+      fontSize: 14,
+      color: isDarkMode ? '#F0F0F0' : '#666',
+      fontWeight: '500',
+    },
+    copyRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 4,
+    },
+    phoneRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginTop: 8,
+      paddingTop: 8,
+      borderTopWidth: 1,
+      borderTopColor: isDarkMode ? '#374151' : '#e0e0e0',
+    },
+    phone: {
+      flex: 1,
+      fontSize: 14,
+      color: isDarkMode ? '#F0F0F0' : '#333',
+    },
+  });
 
   return (
     <View style={styles.container}>
@@ -81,73 +145,18 @@ const PaymentInfoCard = ({ user }) => {
             style={styles.phoneRow}
             onPress={() => copyToClipboard(user.phone)}
           >
-            <Icon name="phone" size={16} color="#4A70A9" />
+            <Icon
+              name="phone"
+              size={16}
+              color={isDarkMode ? '#608CCF' : '#4A70A9'}
+            />
             <Text style={styles.phone}>Telepon: {user.phone}</Text>
-            <Icon name="content-copy" size={16} color="#999" />
+            <Icon name="content-copy" size={16} color={isDarkMode ? '#999' : '#666'} />
           </TouchableOpacity>
         )}
       </View>
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-    padding: 16,
-    marginVertical: 8,
-    marginBottom: 24,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  content: {
-    gap: 8,
-  },
-  method: {
-    fontSize: 14,
-    color: '#4A70A9',
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  label: {
-    fontSize: 14,
-    color: '#666',
-  },
-  value: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
-  },
-  copyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-  },
-  phoneRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-  },
-  phone: {
-    flex: 1,
-    fontSize: 14,
-    color: '#333',
-  },
-});
 
 export default PaymentInfoCard;

@@ -1,745 +1,626 @@
-// screens/ProfileScreen.js
 import React, { useCallback, useEffect, useState } from 'react';
 import { API_URL } from '@env';
 import {
   View,
   Text,
   ScrollView,
-  Image,
   TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  Linking,
   StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+  Image,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { useDarkMode } from '../contexts/DarkMode';
-import { useAuth } from '../contexts/AuthContext';
-import Clipboard from '@react-native-clipboard/clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
-
-// Components
-import UploadedReceipt from '../components/uploadReceipt';
-import MyBills from '../components/MyBills';
+import { useNavigation } from '@react-navigation/native';
+import { useDarkMode } from '../contexts/DarkMode';
+import { useAuth } from '../contexts/AuthContext';
 import HealthSummaryCard from '../components/HealthSummaryCard';
+import HealthAlertModal from '../components/HealthAlertModal';
 
-// ==================== CONSTANTS ====================
 const COLORS = {
-  // Primary
-  primary: '#28A154',
+  primary: '#4A70A9',
+  activity: '#28A154',
   secondary: '#4A70A9',
   danger: '#CF262B',
-  
-  // Background
-  darkBg: '#140C00',
+  warning: '#d97706',
+  darkBg: '#111827',
   lightBg: '#f4f6f9',
-  darkCard: '#404040',
-  lightCard: '#FFFFFF',
-  darkItem: '#2a2a2a',
-  lightItem: '#f9f9f9',
-  darkItemCard: '#1a1a1a',
-  lightItemCard: '#fff',
-  
-  // Text
-  textDark: '#353535',
-  textLight: '#f0f0f0',
-  textMuted: '#999',
-  
-  // Borders
-  borderDark: '#555',
-  borderLight: '#e0e0e0',
-  
-  // Badges
-  success: '#d4edda',
-  successText: '#155724',
-  info: '#cfe2ff',
-  infoText: '#084298',
+  darkCard: '#1f2937',
+  lightCard: '#ffffff',
+  textDark: '#111827',
+  textLight: '#f9fafb',
+  textMuted: '#9ca3af',
 };
 
-const DEFAULT_AVATAR = 'https://static.vecteezy.com/system/resources/previews/054/343/112/non_2x/a-person-icon-in-a-circle-free-png.png';
+const fmt = n => `Rp${Number(n || 0).toLocaleString('id-ID')}`;
 
-// ==================== PROFILE SCREEN ====================
-const ProfileScreen = () => {
+export default function HomeScreen() {
+  const { isDarkMode, setIsDarkMode } = useDarkMode();
+  const { user } = useAuth();
   const navigation = useNavigation();
-  const { isDarkMode } = useDarkMode();
-  const { user, logout } = useAuth();
-  
-  // States
+
+  const [healthAlerts, setHealthAlerts] = useState([]);
+  const [showAlertModal, setShowAlertModal] = useState(false);
+
   const [loading, setLoading] = useState(true);
-  const [formData, setFormData] = useState({
-    id: 0,
-    name: '',
-    profile_picture: '',
-    email: '',
+  const [refreshing, setRefreshing] = useState(false);
+  const [summary, setSummary] = useState({
+    totalTagihan: 0, // total yg harus dibayar user (sebagai participant)
+    jumlahTagihan: 0,
+    menantiKonfirmasi: 0, // bill yg sudah user upload bukti tapi belum dikonfirmasi lender
+    totalDitanggung: 0, // total yg harus dibayar orang lain ke user (sebagai lender)
+    pendingKonfirmasi: 0, // orang yg sudah upload bukti, menunggu konfirmasi user
   });
-  
-  // History state
-  const [history, setHistory] = useState({
-    show: false,
-    receipts: [],
-    selected: null,
-    loading: false,
-  });
+  const [recentActivity, setRecentActivity] = useState([]);
+  const [token, setToken] = useState(null);
 
-  // ==================== HELPER FUNCTIONS ====================
-  const getColor = (light, dark) => isDarkMode ? dark : light;
-  const getBgColor = (light, dark) => ({ backgroundColor: getColor(light, dark) });
-  const getBorderColor = (light, dark) => ({ borderColor: getColor(light, dark) });
-
-  // ==================== EFFECTS ====================
   useEffect(() => {
-    if (user) {
-      setLoading(false);
-      setFormData({
-        id: user.id || 0,
-        name: user.name || '',
-        profile_picture: typeof user.profile_picture === 'string' ? user.profile_picture : '',
-        email: user.email || '',
-      });
-    } else {
-      navigation.replace('Login');
+    AsyncStorage.getItem('token').then(setToken);
+  }, []);
+
+  useEffect(() => {
+    if (token && user?.id) {
+      fetchDashboardData();
+      checkHealthAlerts();
     }
-  }, [user, navigation]);
+  }, [token, user?.id, fetchDashboardData, checkHealthAlerts]);
 
-  // ==================== FETCH HISTORY ====================
-  const fetchHistory = useCallback(async () => {
-    if (!user?.id) return;
-
+  const fetchDashboardData = useCallback(async () => {
+    if (!token || !user?.id) return;
     try {
-      setHistory(prev => ({ ...prev, loading: true }));
-      const token = await AsyncStorage.getItem('token');
-
-      const res = await fetch(`${API_URL}/api/receipts`, {
+      // Fetch tagihan saya (sebagai participant)
+      const billsRes = await fetch(`${API_URL}/api/my-bills`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      const billsData = billsRes.ok ? await billsRes.json() : [];
 
-      const data = await res.json();
+      // Fetch receipts saya (sebagai lender)
+      const receiptsRes = await fetch(`${API_URL}/api/receipts`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const receiptsData = receiptsRes.ok ? await receiptsRes.json() : [];
 
-      const userReceipts = data
-        .filter(receipt => receipt.userId === user.id)
-        .map(receipt => ({
-          id: receipt.id,
-          name: receipt.name,
-          extractedAt: receipt.extractedAt,
-          splitMode: receipt.splitMode,
-          total: receipt.items.reduce((sum, item) => sum + item.price * item.qty, 0),
-          participantCount: receipt.billSplits.length,
-          items: receipt.items.map(item => ({
-            id: item.id,
-            name: item.name,
-            price: item.price,
-            qty: item.qty,
-            assignees: item.assignments?.map(a => ({ id: a.user.id, name: a.user.name })) || [],
-          })),
-          participants: receipt.billSplits.map(split => ({
-            id: split.participant.id,
-            name: split.participant.name,
-            amount: split.amount,
-          })),
-        }))
-        .sort((a, b) => new Date(b.extractedAt).getTime() - new Date(a.extractedAt).getTime());
+      // Hitung summary tagihan
+      const myBills = billsData.filter(b => b.status !== 'CONFIRMED');
+      const totalTagihan = myBills.reduce((s, b) => s + b.amount, 0);
+      const menantiKonfirmasi = myBills.filter(b => b.status === 'PAID').length;
 
-      setHistory(prev => ({ ...prev, receipts: userReceipts }));
+      // Hitung dari sisi lender
+      const myReceipts = receiptsData.filter(r => r.userId === user.id);
+      const allSplits = myReceipts.flatMap(r => r.billSplits || []);
+      const pendingKonfirmasi = allSplits.filter(
+        s => s.status === 'PAID',
+      ).length;
+      const totalDitanggung = allSplits
+        .filter(s => s.status !== 'CONFIRMED')
+        .reduce((s, b) => s + b.amount, 0);
+
+      setSummary({
+        totalTagihan,
+        jumlahTagihan: myBills.length,
+        menantiKonfirmasi,
+        totalDitanggung,
+        pendingKonfirmasi,
+      });
+
+      // Recent activity: gabungin bills + receipts, sort by id desc, ambil 4
+      const recentBills = myBills.map(b => ({
+        id: `bill-${b.receiptId}`,
+        type: 'bill',
+        title: b.receiptName,
+        subtitle: `dari ${b.lender?.name || 'Lender'}`,
+        amount: b.amount,
+        status: b.status,
+        createdAt: b.createdAt,
+      }));
+
+      const recentReceipts = myReceipts.map(r => {
+        const subtotal =
+          r.items?.reduce((s, i) => {
+            const effectivePrice = i.price - (i.voucher || 0);
+            return s + effectivePrice * i.qty;
+          }, 0) || 0;
+
+        const taxAmount = Math.round((subtotal * (r.taxPercent || 0)) / 100);
+        const total = subtotal + taxAmount;
+
+        return {
+          id: `receipt-${r.id}`,
+          type: 'receipt',
+          title: r.name,
+          subtitle: `${r.billSplits?.length || 0} peserta`,
+          amount: total, // ← sebelumnya pakai kalkulasi salah
+          status: 'lender',
+          createdAt: r.extractedAt,
+        };
+      });
+
+      const combined = [...recentBills, ...recentReceipts]
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 4);
+
+      setRecentActivity(combined);
     } catch (err) {
-      console.error('Failed to fetch history:', err);
-      Alert.alert('Error', 'Gagal mengambil history');
+      console.error('Error fetching dashboard:', err);
     } finally {
-      setHistory(prev => ({ ...prev, loading: false }));
+      setLoading(false);
+      setRefreshing(false);
     }
-  }, [user?.id]);
+  }, [token, user?.id]);
 
-  useEffect(() => {
-    if (user?.id) {
-      fetchHistory();
-    }
-  }, [user?.id, fetchHistory]);
+  const checkHealthAlerts = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/health-alerts/today`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = res.ok ? await res.json() : { hasAlerts: false };
 
-  // ==================== HANDLER FUNCTIONS ====================
-  const handleCopyToClipboard = (receipt) => {
-    const message = `Split Bill - ${receipt.name}\n\n` +
-      receipt.participants.map(p => `${p.name}: Rp${p.amount.toLocaleString()}`).join('\n') +
-      `\n\nTotal: Rp${receipt.total.toLocaleString()}`;
+      console.log('📊 Health alerts response:', JSON.stringify(data)); // ← CEK INI
 
-    Clipboard.setString(message);
-    Alert.alert('Sukses', 'Hasil split berhasil disalin!');
-  };
-
-  const handleShareWhatsApp = (receipt) => {
-    const message = `Split Bill - ${receipt.name}\n\n` +
-      receipt.participants.map(p => `${p.name}: Rp${p.amount.toLocaleString()}`).join('\n') +
-      `\n\nTotal: Rp${receipt.total.toLocaleString()}`;
-
-    Linking.openURL(`whatsapp://send?text=${encodeURIComponent(message)}`)
-      .catch(() => Alert.alert('Error', 'WhatsApp tidak terinstall'));
-  };
-
-  const handleDeleteReceipt = async (receipt) => {
-    Alert.alert('Konfirmasi', 'Yakin ingin menghapus history ini?', [
-      { text: 'Batal', style: 'cancel' },
-      {
-        text: 'Hapus',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            const res = await fetch(`${API_URL}/api/receipts/${receipt.id}`, {
-              method: 'DELETE',
-            });
-
-            if (res.ok) {
-              setHistory(prev => ({
-                ...prev,
-                receipts: prev.receipts.filter(r => r.id !== receipt.id),
-                selected: null,
-              }));
-              Alert.alert('Sukses', 'History berhasil dihapus!');
-            } else {
-              Alert.alert('Error', 'Gagal menghapus history');
-            }
-          } catch (err) {
-            console.error('Error deleting receipt:', err);
-            Alert.alert('Error', 'Gagal menghapus history');
-          }
-        },
-      },
-    ]);
-  };
-
-  const toggleHistory = () => {
-    setHistory(prev => {
-      const newShow = !prev.show;
-      if (newShow && prev.receipts.length === 0) {
-        fetchHistory();
+      if (data.hasAlerts) {
+        setHealthAlerts(data.alerts);
+        setShowAlertModal(true);
       }
-      return { ...prev, show: newShow };
-    });
+    } catch (err) {
+      console.error('Error checking health alerts:', err);
+    }
+  }, [token]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchDashboardData();
   };
 
-  const toggleReceiptDetail = (receipt) => {
-    setHistory(prev => ({
-      ...prev,
-      selected: prev.selected?.id === receipt.id ? null : receipt,
-    }));
-  };
+  const bg = isDarkMode ? COLORS.darkBg : COLORS.lightBg;
+  const card = isDarkMode ? COLORS.darkCard : COLORS.lightCard;
+  const textPrimary = isDarkMode ? COLORS.textLight : COLORS.textDark;
+  const textMuted = COLORS.textMuted;
+  const borderColor = isDarkMode ? '#374151' : '#f3f4f6';
 
-  // ==================== LOADING VIEW ====================
   if (loading) {
     return (
-      <View style={[styles.loadingContainer, getBgColor(COLORS.lightBg, COLORS.darkBg)]}>
+      <View style={[styles.center, { backgroundColor: bg }]}>
         <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={[styles.loadingText, { color: getColor(COLORS.textDark, COLORS.textLight) }]}>
-          Memuat data...
-        </Text>
       </View>
     );
   }
 
-  // ==================== MAIN RENDER ====================
   return (
-    <ScrollView style={[styles.container, getBgColor(COLORS.lightBg, COLORS.darkBg)]}>
-      
-      {/* ========== HEADER ========== */}
-      <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: getColor(COLORS.textDark, COLORS.textLight) }]}>
-          Akun saya
-        </Text>
-      </View>
-
-      {/* ========== PROFILE CARD ========== */}
-      <View style={[styles.profileCard, getBgColor(COLORS.lightCard, COLORS.darkCard)]}>
-        <Image
-          source={{ 
-            uri: formData.profile_picture 
-              ? `${API_URL}${formData.profile_picture}` 
-              : DEFAULT_AVATAR 
-          }}
-          style={styles.profileImage}
-        />
-
-        <Text style={[styles.profileName, { color: getColor(COLORS.textDark, COLORS.textLight) }]}>
-          {formData.name}
-        </Text>
-
-        <View style={styles.emailContainer}>
-          <Icon name="email-outline" size={20} color={getColor(COLORS.textDark, COLORS.textLight)} />
-          <Text style={[styles.emailText, { color: getColor(COLORS.textDark, COLORS.textLight) }]}>
-            {formData.email}
-          </Text>
-        </View>
-
-        <View style={{ width: '100%', gap: 10 }}>
-          <TouchableOpacity activeOpacity={0.8}>
-            <LinearGradient
-              colors={[COLORS.secondary, '#2D4365']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={styles.editButton}
-            >
-              <Text style={styles.editButtonText}>Edit Profile</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-
-          <TouchableOpacity activeOpacity={0.8} onPress={logout}>
-            <LinearGradient
-              colors={[COLORS.danger, '#A11E22']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={styles.logoutButton}
-            >
-              <Text style={styles.logoutText}>Logout</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* ========== UPLOAD RECEIPT SECTION ========== */}
-      <Text style={styles.sectionTitle}>Lakukan Split Bill</Text>
-      <UploadedReceipt showHistory={history.show} fetchHistory={fetchHistory} />
-
-      {/* ========== HEALTH SUMMARY CARD ========== */}
-      <HealthSummaryCard userId={user?.id} isDarkMode={isDarkMode} />
-
-      {/* ========== HISTORY SECTION ========== */}
-      <View style={[styles.historyCard, getBgColor(COLORS.lightCard, COLORS.darkCard)]}>
-        <View style={styles.historyHeader}>
-          <Text style={[styles.historyTitle, { color: getColor(COLORS.textDark, COLORS.textLight) }]}>
-            History Split Bills
-          </Text>
-
-          <TouchableOpacity onPress={toggleHistory}>
-            {history.loading ? (
-              <ActivityIndicator size="small" color={COLORS.secondary} />
-            ) : (
-              <Text style={styles.toggleText}>
-                {history.show ? 'Sembunyikan' : 'Tampilkan'} ({history.receipts.length})
-              </Text>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {history.show && (
-          <ScrollView
-            style={styles.historyScrollView}
-            showsVerticalScrollIndicator={true}
-            nestedScrollEnabled={true}
-          >
-            <View style={styles.historyList}>
-              {history.receipts.length === 0 ? (
-                <View style={styles.emptyState}>
-                  <Icon name="receipt-outline" size={48} color={COLORS.textMuted} />
-                  <Text style={styles.emptyText}>Belum ada history split bill tersimpan</Text>
-                </View>
-              ) : (
-                history.receipts.map(receipt => (
-                  <View key={receipt.id}>
-                    {/* Receipt Card */}
-                    <TouchableOpacity
-                      style={[
-                        styles.receiptCard,
-                        getBgColor(COLORS.lightItem, COLORS.darkItem),
-                        getBorderColor(COLORS.borderLight, COLORS.borderDark),
-                      ]}
-                      onPress={() => toggleReceiptDetail(receipt)}
-                    >
-                      <View style={styles.receiptHeader}>
-                        <View style={styles.receiptInfo}>
-                          <Text style={[styles.receiptName, { color: getColor(COLORS.textDark, COLORS.textLight) }]}>
-                            {receipt.name}
-                          </Text>
-
-                          <View style={styles.receiptMeta}>
-                            <Icon name="calendar" size={14} color={COLORS.textMuted} />
-                            <Text style={styles.metaText}>
-                              {new Date(receipt.extractedAt).toLocaleDateString('id-ID')}
-                            </Text>
-
-                            <Icon name="account-group" size={14} color={COLORS.textMuted} style={styles.metaIcon} />
-                            <Text style={styles.metaText}>
-                              {receipt.participantCount} orang
-                            </Text>
-                          </View>
-
-                          <View style={[
-                            styles.badge,
-                            { backgroundColor: receipt.splitMode === 'equal' ? COLORS.success : COLORS.info }
-                          ]}>
-                            <Text style={[
-                              styles.badgeText,
-                              { color: receipt.splitMode === 'equal' ? COLORS.successText : COLORS.infoText }
-                            ]}>
-                              {receipt.splitMode === 'equal' ? 'Bagi Rata' : 'Per Item'}
-                            </Text>
-                          </View>
-                        </View>
-
-                        <View style={styles.receiptTotal}>
-                          <Text style={styles.totalAmount}>
-                            Rp{receipt.total.toLocaleString()}
-                          </Text>
-                          <Icon
-                            name={history.selected?.id === receipt.id ? 'chevron-up' : 'chevron-down'}
-                            size={24}
-                            color={COLORS.textMuted}
-                          />
-                        </View>
-                      </View>
-
-                      {/* Expanded Details */}
-                      {history.selected?.id === receipt.id && (
-                        <View style={styles.expandedDetails}>
-                          {/* Items List */}
-                          <Text style={[styles.detailTitle, { color: getColor(COLORS.textDark, COLORS.textLight) }]}>
-                            Daftar Item:
-                          </Text>
-
-                          {receipt.items.map(item => (
-                            <View key={item.id} style={[
-                              styles.itemCard,
-                              getBgColor(COLORS.lightItemCard, COLORS.darkItemCard)
-                            ]}>
-                              <View style={styles.itemInfo}>
-                                <Text style={[styles.itemName, { color: getColor(COLORS.textDark, COLORS.textLight) }]}>
-                                  {item.name}
-                                </Text>
-                                <Text style={styles.itemQty}>
-                                  {item.qty}x @ Rp{item.price.toLocaleString()}
-                                </Text>
-                                {receipt.splitMode === 'perItem' && item.assignees?.length > 0 && (
-                                  <Text style={styles.assignees}>
-                                    Dipesan: {item.assignees.map(a => a.name).join(', ')}
-                                  </Text>
-                                )}
-                              </View>
-                              <Text style={styles.itemTotal}>
-                                Rp{(item.qty * item.price).toLocaleString()}
-                              </Text>
-                            </View>
-                          ))}
-
-                          {/* Participants */}
-                          <Text style={[styles.detailTitle, { color: getColor(COLORS.textDark, COLORS.textLight) }]}>
-                            Pembagian Biaya:
-                          </Text>
-
-                          {receipt.participants.map((participant, idx) => (
-                            <View key={idx} style={[
-                              styles.participantCard,
-                              getBgColor(COLORS.lightItemCard, COLORS.darkItemCard)
-                            ]}>
-                              <Text style={[styles.participantName, { color: getColor(COLORS.textDark, COLORS.textLight) }]}>
-                                {participant.name}
-                              </Text>
-                              <Text style={styles.participantAmount}>
-                                Rp{participant.amount.toLocaleString()}
-                              </Text>
-                            </View>
-                          ))}
-
-                          {/* Action Buttons */}
-                          <View style={styles.actionButtons}>
-                            <TouchableOpacity
-                              style={[styles.actionButton, styles.copyButton]}
-                              onPress={() => handleCopyToClipboard(receipt)}
-                            >
-                              <Icon name="content-copy" size={16} color="#fff" />
-                              <Text style={styles.actionButtonText}>Copy</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                              style={[styles.actionButton, styles.shareButton]}
-                              onPress={() => handleShareWhatsApp(receipt)}
-                            >
-                              <Icon name="whatsapp" size={16} color="#fff" />
-                              <Text style={styles.actionButtonText}>Share</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                              style={[styles.actionButton, styles.deleteButton]}
-                              onPress={() => handleDeleteReceipt(receipt)}
-                            >
-                              <Icon name="delete" size={16} color="#fff" />
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                ))
-              )}
+    <>
+      <HealthAlertModal
+        visible={showAlertModal}
+        alerts={healthAlerts}
+        onClose={() => setShowAlertModal(false)}
+        isDarkMode={isDarkMode}
+      />
+      <ScrollView
+        style={[styles.container, { backgroundColor: bg }]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[COLORS.primary]}
+          />
+        }
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── HEADER ── */}
+        <LinearGradient
+          colors={['#4A70A9', '#2D4365']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.headerGradient}
+        >
+          <View style={styles.headerTop}>
+            <View>
+              <Text style={styles.headerGreeting}>Halo, 👋</Text>
+              <Text style={styles.headerName}>{user?.name || 'Pengguna'}</Text>
             </View>
-          </ScrollView>
-        )}
-      </View>
+            <View
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
+            >
+              <TouchableOpacity
+                onPress={() => setIsDarkMode(prev => !prev)}
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.3)', // 🔥 BIAR KELIATAN
+                  padding: 10,
+                  borderRadius: 12,
+                }}
+              >
+                <Icon
+                  name={isDarkMode ? 'weather-night' : 'white-balance-sunny'}
+                  size={22}
+                  color="#fff"
+                />
+              </TouchableOpacity>
 
-      <MyBills />
-    </ScrollView>
+              <TouchableOpacity
+                style={styles.avatarBtn}
+                onPress={() => navigation.navigate('Profil')}
+              >
+                <Image
+                  source={{
+                    uri: user?.profile_picture
+                      ? `${API_URL}${user.profile_picture}`
+                      : 'https://static.vecteezy.com/system/resources/previews/054/343/112/non_2x/a-person-icon-in-a-circle-free-png.png',
+                  }}
+                  style={styles.avatar}
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Total tagihan highlight */}
+          <View style={styles.heroCard}>
+            <Text style={styles.heroLabel}>Total Tagihan Belum Bayar</Text>
+            <Text style={styles.heroAmount}>{fmt(summary.totalTagihan)}</Text>
+            <Text style={styles.heroSub}>
+              {summary.jumlahTagihan} tagihan aktif
+            </Text>
+          </View>
+        </LinearGradient>
+
+        <View style={styles.body}>
+          {/* ── QUICK STATS ROW ── */}
+          <View style={styles.statsRow}>
+            {/* Menanti konfirmasi lender */}
+            <View style={[styles.statCard, { backgroundColor: card }]}>
+              <View style={[styles.statIcon, { backgroundColor: '#fef3c7' }]}>
+                <Icon name="timer-sand" size={20} color={COLORS.warning} />
+              </View>
+              <Text style={[styles.statValue, { color: textPrimary }]}>
+                {summary.menantiKonfirmasi}
+              </Text>
+              <Text style={[styles.statLabel, { color: textMuted }]}>
+                Menunggu{'\n'}Konfirmasi
+              </Text>
+            </View>
+
+            {/* Piutang (orang yang belum bayar ke kamu) */}
+            <View style={[styles.statCard, { backgroundColor: card }]}>
+              <View style={[styles.statIcon, { backgroundColor: '#F0F2FD' }]}>
+                <Icon name="cash-multiple" size={20} color={COLORS.primary} />
+              </View>
+              <Text
+                style={[styles.statValue, { color: textPrimary, fontSize: 13 }]}
+              >
+                {fmt(summary.totalDitanggung)}
+              </Text>
+              <Text style={[styles.statLabel, { color: textMuted }]}>
+                Piutang{'\n'}Aktif
+              </Text>
+            </View>
+          </View>
+
+          {/* ── QUICK ACTIONS ── */}
+          <View style={[styles.section, { backgroundColor: card }]}>
+            <Text style={[styles.sectionTitle, { color: textPrimary }]}>
+              Aksi Cepat
+            </Text>
+            <View style={styles.quickActions}>
+              <TouchableOpacity
+                style={styles.quickBtn}
+                onPress={() => navigation.navigate('SplitBill')}
+              >
+                <LinearGradient
+                  colors={['#4A70A9', '#2D4365']}
+                  style={styles.quickBtnGradient}
+                >
+                  <Icon
+                    name="credit-card-scan-outline"
+                    size={24}
+                    color="#fff"
+                  />
+                </LinearGradient>
+                <Text style={[styles.quickBtnLabel, { color: textPrimary }]}>
+                  Split Baru
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.quickBtn}
+                onPress={() => navigation.navigate('Tagihan')}
+              >
+                <LinearGradient
+                  colors={['#4A70A9', '#2D4365']}
+                  style={styles.quickBtnGradient}
+                >
+                  <Icon name="cash-multiple" size={24} color="#fff" />
+                </LinearGradient>
+                <Text style={[styles.quickBtnLabel, { color: textPrimary }]}>
+                  Tagihan Saya
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.quickBtn}
+                onPress={() => navigation.navigate('SplitBill')}
+              >
+                <LinearGradient
+                  colors={['#4A70A9', '#2D4365']}
+                  style={styles.quickBtnGradient}
+                >
+                  <Icon name="check-decagram-outline" size={24} color="#fff" />
+                </LinearGradient>
+                <Text style={[styles.quickBtnLabel, { color: textPrimary }]}>
+                  Konfirmasi
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.quickBtn}
+                onPress={() => navigation.navigate('Profil')}
+              >
+                <LinearGradient
+                  colors={['#4A70A9', '#2D4365']}
+                  style={styles.quickBtnGradient}
+                >
+                  <Icon name="account-edit-outline" size={24} color="#fff" />
+                </LinearGradient>
+                <Text style={[styles.quickBtnLabel, { color: textPrimary }]}>
+                  Profil
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* ── ALERT: PERLU KONFIRMASI ── */}
+          {summary.pendingKonfirmasi > 0 && (
+            <TouchableOpacity
+              onPress={() => navigation.navigate('SplitBill')}
+              activeOpacity={0.85}
+            >
+              <View style={styles.alertCard}>
+                <Icon name="bell-ring" size={20} color="#92400e" />
+                <Text style={styles.alertText}>
+                  Ada{' '}
+                  <Text style={{ fontWeight: '700' }}>
+                    {summary.pendingKonfirmasi} pembayaran
+                  </Text>{' '}
+                  yang menunggu konfirmasi kamu!
+                </Text>
+                <Icon name="chevron-right" size={18} color="#92400e" />
+              </View>
+            </TouchableOpacity>
+          )}
+
+          {/* ── RECENT ACTIVITY ── */}
+          {recentActivity.length > 0 && (
+            <View style={[styles.section, { backgroundColor: card }]}>
+              <Text style={[styles.sectionTitle, { color: textPrimary }]}>
+                Aktivitas Terbaru
+              </Text>
+              {recentActivity.map(item => (
+                <View
+                  key={item.id}
+                  style={[
+                    styles.activityItem,
+                    { borderBottomColor: borderColor },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.activityIcon,
+                      {
+                        backgroundColor:
+                          item.type === 'bill' ? '#fee2e2' : '#d1fae5',
+                      },
+                    ]}
+                  >
+                    <Icon
+                      name={
+                        item.type === 'bill'
+                          ? 'arrow-down-circle-outline'
+                          : 'arrow-up-circle-outline'
+                      }
+                      size={18}
+                      color={
+                        item.type === 'bill' ? COLORS.danger : COLORS.activity
+                      }
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[styles.activityTitle, { color: textPrimary }]}
+                      numberOfLines={1}
+                    >
+                      {item.title}
+                    </Text>
+                    <Text style={[styles.activitySub, { color: textMuted }]}>
+                      {item.subtitle}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text
+                      style={[
+                        styles.activityAmount,
+                        {
+                          color:
+                            item.type === 'bill'
+                              ? COLORS.danger
+                              : COLORS.primary,
+                        },
+                      ]}
+                    >
+                      {item.type === 'bill' ? '-' : '+'}
+                      {fmt(item.amount)}
+                    </Text>
+                    <StatusPill status={item.status} />
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* ── HEALTH SUMMARY ── */}
+          <HealthSummaryCard userId={user?.id} isDarkMode={isDarkMode} />
+
+          <View style={{ height: 0 }} />
+        </View>
+      </ScrollView>
+    </>
+  );
+}
+
+const StatusPill = ({ status }) => {
+  const cfg = {
+    UNPAID: { label: 'Belum Bayar', bg: '#fee2e2', text: '#dc2626' },
+    PAID: { label: 'Menunggu', bg: '#fef3c7', text: '#d97706' },
+    CONFIRMED: { label: 'Lunas', bg: '#d1fae5', text: '#059669' },
+    lender: { label: 'Lender', bg: '#eff6ff', text: '#2563eb' },
+  }[status] || { label: status, bg: '#f3f4f6', text: '#6b7280' };
+
+  return (
+    <View style={[styles.pill, { backgroundColor: cfg.bg }]}>
+      <Text style={[styles.pillText, { color: cfg.text }]}>{cfg.label}</Text>
+    </View>
   );
 };
 
-// ==================== STYLES ====================
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingTop: 60,
-    paddingHorizontal: 16,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    gap: 8,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  profileCard: {
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  profileImage: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    marginBottom: 16,
-  },
-  profileName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  emailContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 16,
-  },
-  emailText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  editButton: {
-    flexDirection: 'row',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 100,
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-  },
-  editButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 100,
-    width: '100%',
-    gap: 4,
-  },
-  logoutText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#656565',
-    marginVertical: 16,
-  },
-  historyCard: {
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 16,
-    marginBottom: 16,
-  },
-  historyHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  historyTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  toggleText: {
-    fontSize: 14,
-    color: COLORS.secondary,
-  },
-  historyScrollView: {
-    maxHeight: 200,
-    marginBottom: 8,
-  },
-  historyList: {
-    gap: 12,
-    paddingBottom: 8,
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 32,
-  },
-  emptyText: {
-    color: COLORS.textMuted,
-    marginTop: 8,
-  },
-  receiptCard: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  receiptHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  receiptInfo: {
-    flex: 1,
-  },
-  receiptName: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  receiptMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-    flexWrap: 'wrap',
-  },
-  metaText: {
-    fontSize: 12,
-    color: COLORS.textMuted,
-    marginLeft: 4,
-  },
-  metaIcon: {
-    marginLeft: 12,
-  },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
-    marginTop: 8,
-  },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  receiptTotal: {
-    alignItems: 'flex-end',
-  },
-  totalAmount: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.primary,
-    marginBottom: 4,
-  },
-  expandedDetails: {
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.borderLight,
-  },
-  detailTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 8,
-    marginTop: 8,
-  },
-  itemCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  itemInfo: {
-    flex: 1,
-  },
-  itemName: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  itemQty: {
-    fontSize: 12,
-    color: COLORS.textMuted,
-    marginTop: 2,
-  },
-  assignees: {
-    fontSize: 11,
-    color: COLORS.secondary,
-    marginTop: 4,
-  },
-  itemTotal: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  participantCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  participantName: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  participantAmount: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: COLORS.secondary,
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 16,
-  },
-  actionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    gap: 4,
-  },
-  copyButton: {
-    backgroundColor: '#6b7280',
-  },
-  shareButton: {
-    backgroundColor: COLORS.primary,
-  },
-  deleteButton: {
-    backgroundColor: COLORS.danger,
-    flex: 0,
-    paddingHorizontal: 16,
-  },
-  actionButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-});
+  container: { flex: 1 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
-export default ProfileScreen;
+  // Header
+  headerGradient: {
+    paddingTop: 60,
+    paddingHorizontal: 20,
+    paddingBottom: 32,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+  },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  headerGreeting: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.8)',
+    fontWeight: '500',
+  },
+  headerName: { fontSize: 22, color: '#fff', fontWeight: '700', marginTop: 2 },
+  avatarBtn: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.4)',
+  },
+  avatar: { width: 44, height: 44, borderRadius: 22 },
+
+  // Hero card
+  heroCard: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  heroLabel: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.8)',
+    fontWeight: '500',
+  },
+  heroAmount: {
+    fontSize: 30,
+    color: '#fff',
+    fontWeight: '800',
+    marginVertical: 4,
+  },
+  heroSub: { fontSize: 12, color: 'rgba(255,255,255,0.7)' },
+
+  body: { padding: 16, gap: 14 },
+
+  // Stats
+  statsRow: { flexDirection: 'row', gap: 10 },
+  statCard: {
+    flex: 1,
+    borderRadius: 14,
+    padding: 12,
+    alignItems: 'center',
+    gap: 6,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  statIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statValue: { fontSize: 18, fontWeight: '800' },
+  statLabel: { fontSize: 11, textAlign: 'center', lineHeight: 15 },
+
+  // Section
+  section: {
+    borderRadius: 16,
+    padding: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 14 },
+
+  // Quick actions
+  quickActions: { flexDirection: 'row', justifyContent: 'space-between' },
+  quickBtn: { alignItems: 'center', gap: 8, flex: 1 },
+  quickBtnGradient: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickBtnLabel: { fontSize: 11, fontWeight: '600', textAlign: 'center' },
+
+  // Alert
+  alertCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#fef3c7',
+    borderRadius: 14,
+    padding: 14,
+    borderLeftWidth: 4,
+    borderLeftColor: '#d97706',
+  },
+  alertText: { flex: 1, fontSize: 13, color: '#92400e' },
+
+  // Activity
+  activityItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  activityIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activityTitle: { fontSize: 14, fontWeight: '600' },
+  activitySub: { fontSize: 12, marginTop: 2 },
+  activityAmount: { fontSize: 13, fontWeight: '700' },
+
+  // Pill
+  pill: {
+    borderRadius: 100,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    marginTop: 3,
+  },
+  pillText: { fontSize: 9, fontWeight: '700' },
+});

@@ -17,6 +17,8 @@ import { useNavigation } from '@react-navigation/native';
 const HealthSummaryCard = ({ userId, isDarkMode }) => {
   const navigation = useNavigation();
   const [summary, setSummary] = useState(null);
+  const [score, setScore] = useState(null);
+  const [scoreLabel, setScoreLabel] = useState(null);
   const [loading, setLoading] = useState(false);
   const [fetchingLatest, setFetchingLatest] = useState(true);
 
@@ -25,7 +27,7 @@ const HealthSummaryCard = ({ userId, isDarkMode }) => {
       setLoading(true);
       const token = await AsyncStorage.getItem('token');
 
-      const response = await fetch(`${API_URL}/api/health-summary/weekly`, {
+      const response = await fetch(`${API_URL}/api/health-summary/daily`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -40,7 +42,7 @@ const HealthSummaryCard = ({ userId, isDarkMode }) => {
         Alert.alert('Sukses', 'Analisis pola konsumsi berhasil dibuat!');
       } else {
         if (result.error?.includes('udah pernah')) {
-          Alert.alert('Info', 'Summary minggu ini sudah pernah dibuat');
+          Alert.alert('Info', 'Summary hari ini sudah pernah dibuat');
           fetchLatestSummary();
         } else {
           Alert.alert('Error', result.error || 'Gagal generate summary');
@@ -66,6 +68,11 @@ const HealthSummaryCard = ({ userId, isDarkMode }) => {
       const result = await response.json();
       if (response.ok && result.data) {
         setSummary(result.data.aiSummary);
+        const structured = result.data.rawData?.structured;
+        if (structured) {
+          setScore(structured.score);
+          setScoreLabel(structured.scoreLabel);
+        }
       }
     } catch (err) {
       console.error('Error fetching latest summary:', err);
@@ -74,7 +81,7 @@ const HealthSummaryCard = ({ userId, isDarkMode }) => {
     }
   };
 
-  // Cek apakah udah ada summary minggu ini
+  // Cek apakah udah ada summary hari ini
   useEffect(() => {
     if (userId) {
       fetchLatestSummary();
@@ -110,6 +117,13 @@ const HealthSummaryCard = ({ userId, isDarkMode }) => {
           </View>
         ) : summary ? (
           <View>
+            {/* Score badge — tampil kalau ada */}
+            {score !== null && (
+              <View style={styles.scoreBadge}>
+                <Text style={styles.scoreText}>Skor: {score}</Text>
+                <Text style={styles.scoreLabelText}>{scoreLabel}</Text>
+              </View>
+            )}
             <Text style={styles.summaryText} numberOfLines={2}>
               {summary}
             </Text>
@@ -122,7 +136,7 @@ const HealthSummaryCard = ({ userId, isDarkMode }) => {
           </View>
         ) : (
           <View>
-            <Text style={styles.emptyText}>Belum ada analisis minggu ini</Text>
+            <Text style={styles.emptyText}>Belum ada analisis hari ini</Text>
             <TouchableOpacity
               style={styles.generateButton}
               onPress={generateSummary}
@@ -141,7 +155,6 @@ const HealthSummaryCard = ({ userId, isDarkMode }) => {
 
 const styles = StyleSheet.create({
   cardWrapper: {
-    marginHorizontal: 16,
     marginVertical: 8,
     borderRadius: 16,
     elevation: 5,
@@ -169,6 +182,25 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  scoreBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  scoreText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
+  scoreLabelText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 12,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
   },
   summaryText: {
     fontSize: 14,
