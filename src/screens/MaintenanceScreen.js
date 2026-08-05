@@ -2,15 +2,24 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useDarkMode } from '../contexts/DarkMode';
 
 export default function MaintenanceScreen() {
+  const { isDarkMode } = useDarkMode();
+
+  const theme = {
+    bg: isDarkMode ? '#111827' : '#FFF',
+    title: isDarkMode ? '#f0f0f0' : '#111827',
+    subtitle: isDarkMode ? '#9ca3af' : '#111827',
+  };
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <View style={styles.iconWrapper}>
         <Icon name="wrench-clock" size={64} color="#fff" />
       </View>
-      <Text style={styles.title}>Sedang Maintenance</Text>
-      <Text style={styles.subtitle}>
+      <Text style={[styles.title, { color: theme.title }]}>Sedang Maintenance</Text>
+      <Text style={[styles.subtitle, { color: theme.subtitle }]}>
         Aplikasi sedang dalam perbaikan.{'\n'}
         Silakan coba lagi beberapa saat lagi. 🙏
       </Text>

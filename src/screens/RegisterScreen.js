@@ -112,8 +112,8 @@ export default function RegisterScreen({ navigation }) {
     setIsLoading(false);
 
     if (success) {
-      Alert.alert('Sukses', 'Akun berhasil dibuat! Silakan login.');
-      navigation.navigate('Login');
+      Alert.alert('Sukses', 'Registrasi berhasil. Silakan cek email Anda untuk kode verifikasi OTP.');
+      navigation.navigate('OTP', { email });
     }
   };
 

@@ -13,6 +13,7 @@ import { useDarkMode } from '../contexts/DarkMode';
 import SplashScreen from '../screens/SplashScreen';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
+import OTPScreen from '../screens/OTPScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 
@@ -178,6 +179,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Splash" component={SplashScreen} />
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="Register" component={RegisterScreen} />
+            <Stack.Screen name="OTP" component={OTPScreen} />
             <Stack.Screen
               name="ForgotPassword"
               component={ForgotPasswordScreen}

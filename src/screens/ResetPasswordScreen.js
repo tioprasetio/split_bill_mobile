@@ -14,8 +14,10 @@ import axios from 'axios';
 import { API_URL } from '@env';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useDarkMode } from '../contexts/DarkMode';
 
 export default function ResetPasswordScreen({ route, navigation }) {
+  const { isDarkMode } = useDarkMode();
   // Ambil token dari route params (dikirim dari deep link handler)
   const [token] = useState(route.params?.token || '');
   const [newPassword, setNewPassword] = useState('');
@@ -25,6 +27,22 @@ export default function ResetPasswordScreen({ route, navigation }) {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [tokenError, setTokenError] = useState(false);
+
+  const theme = {
+    bg: isDarkMode ? '#111827' : '#f9fafb',
+    iconContainer: isDarkMode ? '#1f2937' : '#DCEAFF',
+    title: isDarkMode ? '#f0f0f0' : '#111827',
+    subtitle: isDarkMode ? '#9ca3af' : '#6b7280',
+    label: isDarkMode ? '#d1d5db' : '#374151',
+    inputBg: isDarkMode ? '#1f2937' : '#fff',
+    inputBorder: isDarkMode ? '#374151' : '#d1d5db',
+    inputText: isDarkMode ? '#f0f0f0' : '#111827',
+    inputPlaceholder: isDarkMode ? '#6b7280' : '#9ca3af',
+    errorTitle: isDarkMode ? '#f87171' : '#111827',
+    errorText: isDarkMode ? '#9ca3af' : '#6b7280',
+    successTitle: isDarkMode ? '#f0f0f0' : '#111827',
+    successText: isDarkMode ? '#9ca3af' : '#6b7280',
+  };
 
   useEffect(() => {
     console.log('ResetPasswordScreen mounted');
@@ -257,13 +275,13 @@ export default function ResetPasswordScreen({ route, navigation }) {
   // Token error state
   if (tokenError) {
     return (
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView contentContainerStyle={[styles.container, { backgroundColor: theme.bg }]}>
         <View style={styles.errorContainer}>
           <View style={styles.errorIcon}>
             <Icon name="link-variant-off" size={36} color="#dc2626" />
           </View>
-          <Text style={styles.errorTitle}>Link Tidak Valid</Text>
-          <Text style={styles.errorText}>
+          <Text style={[styles.errorTitle, { color: theme.errorTitle }]}>Link Tidak Valid</Text>
+          <Text style={[styles.errorText, { color: theme.errorText }]}>
             Link reset password tidak ditemukan atau sudah kadaluarsa. Silakan
             minta link baru.
           </Text>
@@ -288,13 +306,13 @@ export default function ResetPasswordScreen({ route, navigation }) {
   // Success state
   if (success) {
     return (
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView contentContainerStyle={[styles.container, { backgroundColor: theme.bg }]}>
         <View style={styles.successContainer}>
           <View style={styles.successIcon}>
             <Icon name="check-circle" size={36} color="#16a34a" />
           </View>
-          <Text style={styles.successTitle}>Password Berhasil Direset!</Text>
-          <Text style={styles.successText}>
+          <Text style={[styles.successTitle, { color: theme.successTitle }]}>Password Berhasil Direset!</Text>
+          <Text style={[styles.successText, { color: theme.successText }]}>
             Password kamu sudah diperbarui. Silakan login dengan password baru
             kamu.
           </Text>
@@ -318,22 +336,22 @@ export default function ResetPasswordScreen({ route, navigation }) {
 
   // Form state
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.iconContainer}>
+    <ScrollView contentContainerStyle={[styles.container, { backgroundColor: theme.bg }]}>
+      <View style={[styles.iconContainer, { backgroundColor: theme.iconContainer }]}>
         <Icon name="lock-check" size={32} color="#4A70A9" />
       </View>
 
-      <Text style={styles.title}>Buat Password Baru</Text>
-      <Text style={styles.subtitle}>
+      <Text style={[styles.title, { color: theme.title }]}>Buat Password Baru</Text>
+      <Text style={[styles.subtitle, { color: theme.subtitle }]}>
         Password baru harus berbeda dari password sebelumnya.
       </Text>
 
-      <Text style={styles.label}>Password Baru</Text>
-      <View style={styles.inputWrapper}>
+      <Text style={[styles.label, { color: theme.label }]}>Password Baru</Text>
+      <View style={[styles.inputWrapper, { backgroundColor: theme.inputBg, borderColor: theme.inputBorder }]}>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { color: theme.inputText }]}
           placeholder="Minimal 6 karakter"
-          placeholderTextColor="#9ca3af"
+          placeholderTextColor={theme.inputPlaceholder}
           value={newPassword}
           onChangeText={setNewPassword}
           secureTextEntry={!showPassword}
@@ -343,7 +361,7 @@ export default function ResetPasswordScreen({ route, navigation }) {
           <Icon
             name={showPassword ? 'eye-off' : 'eye'}
             size={20}
-            color="#9ca3af"
+            color={theme.inputPlaceholder}
           />
         </TouchableOpacity>
       </View>
@@ -364,26 +382,27 @@ export default function ResetPasswordScreen({ route, navigation }) {
         </>
       )}
 
-      <Text style={[styles.label, { marginTop: strength ? 0 : 8 }]}>
+      <Text style={[styles.label, { marginTop: strength ? 0 : 8, color: theme.label }]}>
         Konfirmasi Password
       </Text>
       <View
         style={[
           styles.inputWrapper,
           {
+            backgroundColor: theme.inputBg,
             borderColor: passwordMismatch
               ? '#ef4444'
               : passwordMatch
               ? '#22c55e'
-              : '#d1d5db',
+              : theme.inputBorder,
             marginBottom: 4,
           },
         ]}
       >
         <TextInput
-          style={styles.input}
+          style={[styles.input, { color: theme.inputText }]}
           placeholder="Ulangi password baru"
-          placeholderTextColor="#9ca3af"
+          placeholderTextColor={theme.inputPlaceholder}
           value={confirmPassword}
           onChangeText={setConfirmPassword}
           secureTextEntry={!showConfirm}
@@ -393,7 +412,7 @@ export default function ResetPasswordScreen({ route, navigation }) {
           <Icon
             name={showConfirm ? 'eye-off' : 'eye'}
             size={20}
-            color="#9ca3af"
+            color={theme.inputPlaceholder}
           />
         </TouchableOpacity>
       </View>

@@ -56,7 +56,7 @@ export default function BugScreen() {
   const handleLaporBug = () => {
     const msg =
       `Halo, saya ingin melaporkan bug:\n\n` +
-      `*Versi Aplikasi:* v1.0.0\n` +
+      `*Versi Aplikasi:* v1.0.2\n` +
       `*Pengguna:* ${user?.email}\n` +
       `*Tanggal:* ${new Date().toLocaleDateString('id-ID')}\n\n` +
       `*Deskripsi Bug:*\n[Tuliskan detail bug di sini]`;
@@ -111,7 +111,7 @@ export default function BugScreen() {
             {
               icon: 'cellphone',
               label: 'Versi Aplikasi',
-              value: 'v1.0.0',
+              value: 'v1.0.2',
               iconBg: '#E6F1FB',
               iconColor: '#185FA5',
             },
@@ -243,7 +243,7 @@ export default function BugScreen() {
 
         {/* ── VERSION ── */}
         <Text style={[styles.version, { color: COLORS.textMuted }]}>
-          Snipio App v1.0.0
+          Snipio App v1.0.2
         </Text>
 
         <View style={{ height: 24 }} />

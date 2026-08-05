@@ -56,12 +56,59 @@ export const AuthProvider = ({ children }) => {
       setUser(userData);
       setIsLoggedIn(true);
       setLoading(false);
+      return { success: true };
     } catch (error) {
       console.log('Login error:', error);
+      if (error.response?.status === 403 && error.response?.data?.unverified) {
+        return { success: false, unverified: true, email: error.response.data.email };
+      }
       Alert.alert(
         'Login gagal',
         error.response?.data?.message || 'Email atau password salah',
       );
+      return { success: false };
+    }
+  };
+
+  // 🔑 VERIFY OTP
+  const verifyOtp = async (email, otp) => {
+    try {
+      const response = await axios.post(`${API_URL}/api/verify-otp`, {
+        email,
+        otp,
+      });
+      const { token, user: userData } = response.data;
+
+      await AsyncStorage.setItem('token', token);
+      setUser(userData);
+      setIsLoggedIn(true);
+      setLoading(false);
+      return { success: true };
+    } catch (error) {
+      console.log('Verify OTP error:', error);
+      Alert.alert(
+        'Verifikasi Gagal',
+        error.response?.data?.message || 'Gagal memverifikasi OTP',
+      );
+      return { success: false, message: error.response?.data?.message };
+    }
+  };
+
+  // 🔄 RESEND OTP
+  const resendOtp = async (email) => {
+    try {
+      const response = await axios.post(`${API_URL}/api/resend-otp`, {
+        email,
+      });
+      Alert.alert('Sukses', response.data.message || 'OTP baru berhasil dikirim.');
+      return true;
+    } catch (error) {
+      console.log('Resend OTP error:', error);
+      Alert.alert(
+        'Kirim Ulang Gagal',
+        error.response?.data?.message || 'Gagal mengirim ulang OTP',
+      );
+      return false;
     }
   };
 
@@ -191,6 +238,8 @@ export const AuthProvider = ({ children }) => {
         logout,
         setUser,
         isMaintenance,
+        verifyOtp,
+        resendOtp,
       }}
     >
       {children}

@@ -13,11 +13,31 @@ import axios from 'axios';
 import { API_URL } from '@env';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useDarkMode } from '../contexts/DarkMode';
 
 export default function ForgotPasswordScreen({ navigation }) {
+  const { isDarkMode } = useDarkMode();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+
+  const theme = {
+    bg: isDarkMode ? '#111827' : '#f9fafb',
+    backText: isDarkMode ? '#f0f0f0' : '#333333',
+    iconContainer: isDarkMode ? '#1f2937' : '#DCEAFF',
+    title: isDarkMode ? '#f0f0f0' : '#111827',
+    subtitle: isDarkMode ? '#9ca3af' : '#6b7280',
+    label: isDarkMode ? '#d1d5db' : '#374151',
+    inputBg: isDarkMode ? '#1f2937' : '#fff',
+    inputBorder: isDarkMode ? '#374151' : '#d1d5db',
+    inputText: isDarkMode ? '#f0f0f0' : '#111827',
+    inputPlaceholder: isDarkMode ? '#6b7280' : '#9ca3af',
+    successTitle: isDarkMode ? '#f0f0f0' : '#111827',
+    successText: isDarkMode ? '#9ca3af' : '#6b7280',
+    noteCardBg: isDarkMode ? '#1e293b' : '#dbeafe',
+    noteCardText: isDarkMode ? '#93c5fd' : '#1e40af',
+    resendLabel: isDarkMode ? '#9ca3af' : '#6b7280',
+  };
 
   const handleForgotPassword = async () => {
     if (!email.trim()) {
@@ -181,32 +201,39 @@ export default function ForgotPasswordScreen({ navigation }) {
   });
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={[styles.container, { backgroundColor: theme.bg }]}>
       <TouchableOpacity
         style={styles.backButton}
         onPress={() => navigation.goBack()}
       >
-        <Icon name="arrow-left" size={18} color="#333333" />
-        <Text style={styles.backText}>Kembali ke Login</Text>
+        <Icon name="arrow-left" size={18} color={theme.backText} />
+        <Text style={[styles.backText, { color: theme.backText }]}>Kembali ke Login</Text>
       </TouchableOpacity>
 
       {!sent ? (
         <>
-          <View style={styles.iconContainer}>
+          <View style={[styles.iconContainer, { backgroundColor: theme.iconContainer }]}>
             <Icon name="lock-reset" size={32} color="#4A70A9" />
           </View>
 
-          <Text style={styles.title}>Lupa Password?</Text>
-          <Text style={styles.subtitle}>
+          <Text style={[styles.title, { color: theme.title }]}>Lupa Password?</Text>
+          <Text style={[styles.subtitle, { color: theme.subtitle }]}>
             Masukkan email yang terdaftar. Kami akan mengirimkan link untuk
             reset password kamu.
           </Text>
 
-          <Text style={styles.label}>Email</Text>
+          <Text style={[styles.label, { color: theme.label }]}>Email</Text>
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              {
+                backgroundColor: theme.inputBg,
+                borderColor: theme.inputBorder,
+                color: theme.inputText,
+              },
+            ]}
             placeholder="emailkamu@gmail.com"
-            placeholderTextColor="#9ca3af"
+            placeholderTextColor={theme.inputPlaceholder}
             value={email}
             onChangeText={setEmail}
             keyboardType="email-address"
@@ -239,26 +266,26 @@ export default function ForgotPasswordScreen({ navigation }) {
             <Icon name="email-check" size={36} color="#16a34a" />
           </View>
 
-          <Text style={styles.successTitle}>Email Terkirim!</Text>
-          <Text style={styles.successText}>
+          <Text style={[styles.successTitle, { color: theme.successTitle }]}>Email Terkirim!</Text>
+          <Text style={[styles.successText, { color: theme.successText }]}>
             Link reset password sudah dikirim ke{'\n'}
-            <Text style={{ fontWeight: '600', color: '#111827' }}>
+            <Text style={{ fontWeight: '600', color: isDarkMode ? '#60a5fa' : '#111827' }}>
               {email}
             </Text>
             {'\n\n'}
             Cek inbox atau folder spam kamu.
           </Text>
 
-          <View style={styles.noteCard}>
-            <Icon name="information" size={16} color="#1e40af" />
-            <Text style={styles.noteText}>
+          <View style={[styles.noteCard, { backgroundColor: theme.noteCardBg }]}>
+            <Icon name="information" size={16} color={theme.noteCardText} />
+            <Text style={[styles.noteText, { color: theme.noteCardText }]}>
               Link berlaku selama 15 menit. Jika tidak menerima email, coba
               kirim ulang atau periksa folder spam.
             </Text>
           </View>
 
           <View style={styles.resendRow}>
-            <Text style={styles.resendLabel}>Tidak menerima email?</Text>
+            <Text style={[styles.resendLabel, { color: theme.resendLabel }]}>Tidak menerima email?</Text>
             <TouchableOpacity
               onPress={() => {
                 setSent(false);

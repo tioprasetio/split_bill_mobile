@@ -208,7 +208,11 @@ const UploadedReceipt = ({ showHistory, fetchHistory }) => {
         body: formData,
       });
 
-      const data = await res.json();
+      // const data = await res.json();
+      const text = await res.text();
+      console.log('STATUS:', res.status);
+      console.log('TEXT:', text);
+      const data = JSON.parse(text);
 
       if (!res.ok) {
         if (data.errorType === 'not_receipt') {

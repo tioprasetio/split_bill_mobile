@@ -21,8 +21,21 @@ export default function LoginScreen({ navigation }) {
   const handleLogin = async () => {
     console.log('Tombol login ditekan');
     try {
-      await login(email, password);
-      console.log('Login berhasil');
+      const res = await login(email, password);
+      if (res && res.unverified) {
+        Alert.alert(
+          'Email Belum Diverifikasi',
+          'Akun Anda belum terverifikasi. Silakan lakukan verifikasi OTP.',
+          [
+            {
+              text: 'Verifikasi Sekarang',
+              onPress: () => navigation.navigate('OTP', { email: res.email }),
+            },
+          ]
+        );
+      } else {
+        console.log('Login berhasil');
+      }
     } catch (err) {
       console.log('Error saat login:', err);
       Alert.alert('Login gagal. Periksa email/password.');

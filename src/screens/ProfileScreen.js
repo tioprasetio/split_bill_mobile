@@ -466,7 +466,7 @@ export default function ProfileScreen() {
 
         {/* App version */}
         <Text style={[styles.version, { color: COLORS.textMuted }]}>
-          Snipio App v1.0.0
+          Snipio App v1.0.2
         </Text>
 
         <View style={{ height: 0 }} />
